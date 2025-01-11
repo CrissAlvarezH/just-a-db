@@ -16,3 +16,13 @@ function log() {
 
   printf "\n${color}$1${COLOR_OFF}\n"
 }
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$DIR/.env" ]; then
+  source "$DIR/.env"
+fi
+
+if [ -z "$AWS_REGION" ]; then
+  AWS_REGION="us-east-1"
+fi

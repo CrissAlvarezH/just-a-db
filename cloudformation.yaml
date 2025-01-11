@@ -14,6 +14,7 @@ Resources:
     Properties:
       ImageId: ami-0bf0565838358789b # Amazon Linux 2 LTS Arm64 AMI 2.0.20230119.1 arm64 HVM gp2 
       InstanceType: t4g.small
+      IamInstanceProfile: !Ref InstanceProfile
       KeyName: just-a-db
       SecurityGroupIds:
         - !Ref InstanceSecurityGroup
@@ -37,73 +38,52 @@ Resources:
           ToPort: 5432
           CidrIp: 0.0.0.0/0
 
-  BackupsLambda:
-    Type: AWS::Lambda::Function
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
     Properties:
-      FunctionName: just-a-db-backups
-      Handler: src.app.handler
-      Role: !Ref BackupsLambdaRole
-      LogGroup: !Ref BackupsLambdaLogGroup
-      Code:
-        ZipFile: |
-          # this code will be replaced after, it is just to create de lambda function
-          def main(event, context):
-            print("empty lambda function")
+      InstanceProfileName: just-a-db-instance-profile
+      Roles:
+        - !Ref InstanceRole
 
-  BackupsLambdaRole:
+  InstanceRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: just-a-db-backups-lambda-role
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
           - Effect: Allow
             Principal: 
-              Service: lambda.amazonaws.com
+              Service: ec2.amazonaws.com
             Action: sts:AssumeRole
-        ManagedPolicyArns:
-          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        Policies:
-          - PolicyName: just-a-db-backups-lambda-policy
-            PolicyDocument:
-              Version: 2012-10-17
-              Statement:
-                - Effect: Allow
-                  Action: 
-                    - s3:PutObject
-                    - s3:GetObject
-                  Resource: !Ref ResourcesBucket
+      Policies:
+        - PolicyName: just-a-db-s3-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !GetAtt ResourcesBucket.Arn
 
-  BackupsLambdaLogGroup:
+  BackupsLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: just-a-db/backups-logs
-      RetentionInDays: 10
+      RetentionInDays: 14
 
   DatabaseLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: just-a-db/database-logs
-      RetentionInDays: 10
-
-  BackupsLambdaCron:
-    Type: AWS::Events::Rule
-    Properties:
-      ScheduleExpression: cron(0 1 * * ? *)
-      Targets:
-        - Arn: !Ref BackupsLambda
-          Id: BackupsLambdaTarget
-
-  BackupsLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref BackupsLambda
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt BackupsLambdaCron.Arn
+      RetentionInDays: 14
 
   ResourcesBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: just-a-db-backups
 
+Outputs:
+  InstancePublicIp:
+    Description: The public IP address of the EC2 instance
+    Value: !GetAtt Instance.PublicIp
