@@ -17,5 +17,21 @@ services:
         awslogs-region: ${AWS_REGION}
         awslogs-group: just-a-db/database-logs
 
+  backups:
+    image: just-a-db-backups
+    build:
+      context: ./backups
+    depends_on:
+      - database
+    env_file:
+      - .db.env
+      - .backup.env
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: just-a-db/database-logs
+
 volumes:
   dbdata: {}
+

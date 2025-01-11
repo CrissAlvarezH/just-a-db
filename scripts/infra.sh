@@ -2,6 +2,7 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/base.sh"
+source "$DIR/../.env"
 
 
 function setup_stack() {
@@ -23,6 +24,17 @@ function setup_stack() {
     fi
   fi
 
+  if [ -z "$S3_BUCKET" ]; then
+    log "S3_BUCKET is not set in .env file, please set the S3_BUCKET in .env file" "error"
+    exit 1
+  fi
+
+  log "Validate if bucket exists"
+  if ! aws s3 ls s3://$S3_BUCKET &>/dev/null; then
+    log "Bucket $S3_BUCKET does not exist, please create it first" "error"
+    exit 1
+  fi
+
   log "Creating key pair"
   aws ec2 create-key-pair --key-name just-a-db --query 'KeyMaterial' --output text > just-a-db.pem
   chmod 400 just-a-db.pem
@@ -33,14 +45,17 @@ function setup_stack() {
     --stack-name just-a-db \
     --region $AWS_REGION \
     --template-body file://cloudformation.yaml \
-    --parameters ParameterKey=VpcId,ParameterValue=$VPC_ID ParameterKey=SubnetId,ParameterValue=$SUBNET_ID \
+    --parameters \
+      ParameterKey=VpcId,ParameterValue=$VPC_ID \
+      ParameterKey=SubnetId,ParameterValue=$SUBNET_ID \
+      ParameterKey=BackupCronExpression,ParameterValue=$BACKUP_CRON_EXPRESSION \
+      ParameterKey=ResourcesBucketName,ParameterValue=$S3_BUCKET \
     --capabilities CAPABILITY_NAMED_IAM |
     cat 
 }
 
 
 function get_stack_status() {
-
   while true; do
     clear
     log "... Getting stack status <Ctrl+C to stop>"
@@ -69,4 +84,31 @@ function destroy_stack() {
 
   log "Cleaning up"
   rm -f just-a-db.pem
+}
+
+function get_instance_ip() {
+  ip=$(aws cloudformation describe-stacks \
+    --stack-name just-a-db \
+    --region $AWS_REGION \
+    --query "Stacks[0].Outputs[?OutputKey=='InstancePublicIp'].OutputValue" \
+    --output text)
+
+  echo $ip
+}
+
+
+function connect_to_instance() {
+  ip=$(get_instance_ip)
+  ssh -o StrictHostKeyChecking=no -i just-a-db.pem ec2-user@$ip
+}
+
+
+function get_user_data_output() {
+  ip=$(get_instance_ip)
+
+  ssh -o StrictHostKeyChecking=no -i just-a-db.pem ec2-user@$ip \
+    "sudo cat /var/log/cloud-init-output.log" > user_data_output.log
+
+  echo "User data output:"
+  cat user_data_output.log
 }

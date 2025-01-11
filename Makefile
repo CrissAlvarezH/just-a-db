@@ -9,8 +9,8 @@ destroy:
 status:
 	sh scripts/entrypoint.sh status
 
-start:
-	sh scripts/entrypoint.sh start
+connect:
+	sh scripts/entrypoint.sh connect
 
-down:
-	sh scripts/entrypoint.sh down
+user-data:
+	sh scripts/entrypoint.sh user-data

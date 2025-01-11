@@ -1,4 +1,9 @@
 .idea/
 .vscode/
 
+.env
+.db.env
+.backup.env
+
 just-a-db.pem
+user_data_output*.log

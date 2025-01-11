@@ -2,8 +2,8 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/base.sh"
-source "$DIR/containers.sh"
 source "$DIR/infra.sh"
+source "$DIR/containers.sh"
 
 action=$1
 
@@ -22,11 +22,23 @@ case $action in
   "destroy")
     destroy_stack
     ;;
+  "connect")
+    connect_to_instance
+    ;;
+  "user-data")
+    get_user_data_output
+    ;;
+  "install-docker")
+    install_docker
+    ;;
+  "register-backup-cron")
+    register_backup_cron $2
+    ;;
+  "generate-env-files")
+    generate_env_files
+    ;;
   "start")
     start
-    ;;
-  "stop")
-    down
     ;;
   *)
     echo "not supported action"

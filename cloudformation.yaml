@@ -1,12 +1,20 @@
 AWSTemplateFormatVersion: 2010-09-09
 
-
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
+    Description: "VPC ID for security group"
   SubnetId:
     Type: AWS::EC2::Subnet::Id
-  
+    Description: "Subnet ID for instance"
+  BackupCronExpression:
+    Type: String
+    Default: "0 2 * * *" # Every day at 2:00 AM
+    Description: "Cron expression to run the backup"
+  ResourcesBucketName:
+    Type: String
+    Description: "S3 bucket name"
+
 Resources:
 
   Instance:
@@ -22,6 +30,24 @@ Resources:
       Tags:
         - Key: Name
           Value: just-a-db
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+
+          echo "Install git and clone the repo"
+          yum install -y git
+          git clone https://github.com/CrissAlvarezH/just-a-db /home/ec2-user/just-a-db
+          cd /home/ec2-user/just-a-db
+
+          export S3_BUCKET=${ResourcesBucketName}
+
+          touch .env
+
+          sh ./scripts/entrypoint.sh generate-env-files
+          sh ./scripts/entrypoint.sh install-docker
+          sh ./scripts/entrypoint.sh register-backup-cron "${BackupCronExpression}"
+          sh ./scripts/entrypoint.sh start
 
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -64,7 +90,7 @@ Resources:
                 Action: 
                   - s3:PutObject
                   - s3:GetObject
-                Resource: !GetAtt ResourcesBucket.Arn
+                Resource: !Sub arn:aws:s3:::${ResourcesBucketName}/*
 
   BackupsLogGroup:
     Type: AWS::Logs::LogGroup
@@ -77,11 +103,6 @@ Resources:
     Properties:
       LogGroupName: just-a-db/database-logs
       RetentionInDays: 14
-
-  ResourcesBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: just-a-db-backups
 
 Outputs:
   InstancePublicIp:
