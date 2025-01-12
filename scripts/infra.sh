@@ -2,10 +2,11 @@
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/base.sh"
-source "$DIR/../.env"
 
 
 function setup_stack() {
+  source "$DIR/../.env"
+
   if [ -z "$VPC_ID" ]; then
     log "VPC_ID is not set in .env file, it will take the default vpc if exists" "warn"
     VPC_ID=$(aws ec2 describe-vpcs --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)
@@ -46,10 +47,10 @@ function setup_stack() {
     --region $AWS_REGION \
     --template-body file://cloudformation.yaml \
     --parameters \
-      ParameterKey=VpcId,ParameterValue=$VPC_ID \
-      ParameterKey=SubnetId,ParameterValue=$SUBNET_ID \
-      ParameterKey=BackupCronExpression,ParameterValue=$BACKUP_CRON_EXPRESSION \
-      ParameterKey=ResourcesBucketName,ParameterValue=$S3_BUCKET \
+      ParameterKey=VpcId,ParameterValue="$VPC_ID" \
+      ParameterKey=SubnetId,ParameterValue="$SUBNET_ID" \
+      ParameterKey=BackupCronExpression,ParameterValue="$BACKUP_CRON_EXPRESSION" \
+      ParameterKey=ResourcesBucketName,ParameterValue="$S3_BUCKET" \
     --capabilities CAPABILITY_NAMED_IAM |
     cat 
 }

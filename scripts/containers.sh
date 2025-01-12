@@ -1,7 +1,4 @@
 #!/bin/bash
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$DIR/base.sh"
-
 
 function start() {
   echo "Starting postgres container"
@@ -13,13 +10,10 @@ function generate_env_files() {
   echo "AWS_REGION=${AWS_REGION}" > .env
 
   echo "Generating .db.env file"
-  dbuser=$(openssl rand -base64 16)
-  dbpass=$(openssl rand -base64 16)
-  echo "DB_USER=${dbuser}" > .db.env
-  echo "DB_PASSWORD=${dbpass}" >> .db.env
-  echo "DB_NAME=just_a_db" >> .db.env
-  echo "DB_HOST=localhost" >> .db.env
-  echo "DB_PORT=5432" >> .db.env
+  dbuser=db-user-$(openssl rand -base64 5 | tr -dc 'a-zA-Z0-9')
+  dbpass=$(openssl rand -base64 20)
+  echo "POSTGRES_USER=${dbuser}" > .db.env
+  echo "POSTGRES_PASSWORD=${dbpass}" >> .db.env
 
   echo "S3_BUCKET=${S3_BUCKET}" >> .backup.env
 }
@@ -55,4 +49,12 @@ function register_backup_cron() {
     notifempty
     create 644 root root
   }" > /etc/logrotate.d/db-backup
+}
+
+function download_env_files() {
+  echo "Getting credentials"
+  ip=$(get_instance_ip)
+  ssh -o StrictHostKeyChecking=no -i just-a-db.pem ec2-user@${ip} "cat /home/ec2-user/just-a-db/.env" > .env.remote
+  ssh -o StrictHostKeyChecking=no -i just-a-db.pem ec2-user@${ip} "cat /home/ec2-user/just-a-db/.db.env" > .db.env.remote
+  ssh -o StrictHostKeyChecking=no -i just-a-db.pem ec2-user@${ip} "cat /home/ec2-user/just-a-db/.backup.env" > .backup.env.remote
 }

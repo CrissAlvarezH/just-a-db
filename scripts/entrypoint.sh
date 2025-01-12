@@ -40,6 +40,9 @@ case $action in
   "start")
     start
     ;;
+  "download-env")
+    download_env_files
+    ;;
   *)
     echo "not supported action"
     exit 1

@@ -91,6 +91,18 @@ Resources:
                   - s3:PutObject
                   - s3:GetObject
                 Resource: !Sub arn:aws:s3:::${ResourcesBucketName}/*
+        - PolicyName: just-a-db-logs-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 
+                  - !GetAtt BackupsLogGroup.Arn
+                  - !GetAtt DatabaseLogGroup.Arn
 
   BackupsLogGroup:
     Type: AWS::Logs::LogGroup
