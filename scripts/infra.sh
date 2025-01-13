@@ -40,6 +40,13 @@ function setup_stack() {
   aws ec2 create-key-pair --key-name just-a-db --query 'KeyMaterial' --output text > just-a-db.pem
   chmod 400 just-a-db.pem
 
+  log "INFO:"
+  echo "region: $AWS_REGION"
+  echo "vpc: $VPC_ID"
+  echo "subnet: $SUBNET_ID"
+  echo "bucket: $S3_BUCKET"
+  echo "backup cron: $BACKUP_CRON_EXPRESSION"
+
   log "Creating stack just-a-db"
   aws cloudformation \
     create-stack \

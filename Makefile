@@ -3,8 +3,8 @@
 setup:
 	sh scripts/entrypoint.sh setup
 
-download-env:
-	sh scripts/entrypoint.sh download-env
+credentials:
+	sh scripts/entrypoint.sh credentials
 
 destroy:
 	sh scripts/entrypoint.sh destroy

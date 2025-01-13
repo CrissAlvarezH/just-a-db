@@ -35,19 +35,26 @@ Resources:
           #!/bin/bash
           yum update -y
 
+          echo "Instaling docker and docker-compose"
+          amazon-linux-extras install docker -y
+          service docker start
+          usermod -a -G docker ec2-user
+
+          sudo curl -L "https://github.com/docker/compose/releases/download/v2.17.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+          docker-compose --version
+
           echo "Install git and clone the repo"
           yum install -y git
           git clone https://github.com/CrissAlvarezH/just-a-db /home/ec2-user/just-a-db
           cd /home/ec2-user/just-a-db
 
-          export S3_BUCKET=${ResourcesBucketName}
-
-          touch .env
-
-          sh ./scripts/entrypoint.sh generate-env-files
-          sh ./scripts/entrypoint.sh install-docker
-          sh ./scripts/entrypoint.sh register-backup-cron "${BackupCronExpression}"
-          sh ./scripts/entrypoint.sh start
+          sudo -u ec2-user bash << EOF
+            sh ./scripts/entrypoint.sh register-backup-cron "${BackupCronExpression}"
+            sh ./scripts/entrypoint.sh generate-env-files
+            export S3_BUCKET=${ResourcesBucketName}
+            sh ./scripts/entrypoint.sh start
+          EOF
 
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup

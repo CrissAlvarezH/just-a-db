@@ -4,9 +4,7 @@
 .env
 .db.env
 .backup.env
-.db.env.remote
-.backup.env.remote
-.env.remote
+credentials.txt
 
 just-a-db.pem
 user_data_output*.log

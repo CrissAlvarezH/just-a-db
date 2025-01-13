@@ -3,10 +3,10 @@ import subprocess
 import boto3
 from psycopg2 import connect
 
-PG_HOST = os.getenv("DB_HOST")
-PG_PORT = os.getenv("DB_PORT")
-PG_USER = os.getenv("DB_USER")
-PG_PASSWORD = os.getenv("DB_PASSWORD")
+PG_HOST = os.getenv("HOST", "localhost")
+PG_PORT = os.getenv("PORT", "5432")
+PG_USER = os.getenv("POSTGRES_USER")
+PG_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 
 S3_BUCKET_NAME = os.getenv("S3_BUCKET")
 S3_BACKUP_FOLDER = "backups"

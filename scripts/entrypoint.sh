@@ -32,7 +32,7 @@ case $action in
     install_docker
     ;;
   "register-backup-cron")
-    register_backup_cron $2
+    register_backup_cron "$2"
     ;;
   "generate-env-files")
     generate_env_files
@@ -40,8 +40,8 @@ case $action in
   "start")
     start
     ;;
-  "download-env")
-    download_env_files
+  "credentials")
+    get_credentials
     ;;
   *)
     echo "not supported action"
