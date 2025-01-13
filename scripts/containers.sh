@@ -1,6 +1,9 @@
 #!/bin/bash
 
 function start() {
+  echo "Building backups container"
+  docker-compose build backups
+
   echo "Starting postgres container"
   docker-compose up -d database
 }
@@ -27,10 +30,10 @@ function register_backup_cron() {
   fi
 
   echo "Adding cron job to run backup at '${cron}'"
-  crontab -l | { cat; echo "${cron} cd /home/ec2-user/just-a-db && docker-compose run --rm backup >> /var/log/backup.log 2>&1"; } | crontab -
+  crontab -l | { cat; echo "${cron} cd /home/ec2-user/just-a-db && docker-compose run --rm backups >> /home/ec2-user/just-a-db/backups.log 2>&1"; } | crontab -
 
   echo "Add log rotationg configuration"
-  sudo bash -c "echo '/var/log/backup.log {
+  sudo bash -c "echo '/home/ec2-user/just-a-db/backups.log {
     rotate 7
     daily
     compress

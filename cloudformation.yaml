@@ -46,10 +46,11 @@ Resources:
 
           echo "Install git and clone the repo"
           yum install -y git
-          git clone https://github.com/CrissAlvarezH/just-a-db /home/ec2-user/just-a-db
-          cd /home/ec2-user/just-a-db
 
-          sudo -u ec2-user bash << EOF
+          su ec2-user << EOF
+            git clone https://github.com/CrissAlvarezH/just-a-db /home/ec2-user/just-a-db
+            cd /home/ec2-user/just-a-db
+
             sh ./scripts/entrypoint.sh register-backup-cron "${BackupCronExpression}"
             sh ./scripts/entrypoint.sh generate-env-files
             export S3_BUCKET=${ResourcesBucketName}
