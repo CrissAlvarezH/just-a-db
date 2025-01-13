@@ -98,7 +98,11 @@ Resources:
                 Action: 
                   - s3:PutObject
                   - s3:GetObject
-                Resource: !Sub arn:aws:s3:::${ResourcesBucketName}/*
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource: 
+                  - !Sub arn:aws:s3:::${ResourcesBucketName}/*
+                  - !Sub arn:aws:s3:::${ResourcesBucketName}
         - PolicyName: just-a-db-logs-access
           PolicyDocument:
             Version: 2012-10-17

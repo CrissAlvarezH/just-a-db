@@ -84,9 +84,6 @@ function destroy_stack() {
   log "Deleting key pair"
   aws ec2 delete-key-pair --key-name just-a-db | cat
 
-  log "Emptying bucket"
-  aws s3 rm s3://just-a-db-backups --recursive | cat
-
   log "Deleting stack"
   aws cloudformation delete-stack --stack-name just-a-db --region $AWS_REGION | cat
 

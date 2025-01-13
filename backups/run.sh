@@ -6,7 +6,7 @@ DB_PORT="5432"
 
 export PGPASSWORD="$POSTGRES_PASSWORD"
 
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 
 databases=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -t -c "SELECT datname FROM pg_database WHERE datname NOT IN ('template0', 'template1', 'postgres')")
 
@@ -24,3 +24,27 @@ for db in $databases; do
 done
 
 echo "All database backups completed and uploaded successfully"
+
+echo "Deleting old backups"
+
+# Keep only the 3 most recent backups for each database
+for db in $databases; do
+  # List all backups for this database, sorted by date (oldest first)
+  backups=$(aws s3 ls "s3://$S3_BUCKET/$db/" | sort | awk '{print $4}')
+  backup_count=$(echo "$backups" | wc -l)
+
+  # If we have more than 3 backups, delete the oldest ones
+  if [ "$backup_count" -gt 3 ]; then
+    # Calculate how many backups to delete
+    delete_count=$((backup_count - 3))
+    
+    # Get the oldest backups that need to be deleted
+    to_delete=$(echo "$backups" | head -n "$delete_count")
+    
+    # Delete each old backup
+    for backup in $to_delete; do
+      echo "Deleting old backup: s3://$S3_BUCKET/$db/$backup"
+      aws s3 rm "s3://$S3_BUCKET/$db/$backup"
+    done
+  fi
+done
