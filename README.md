@@ -32,8 +32,8 @@ That's all, it will create the following infrastructure in you aws account:
 
 
 ### Details
-- You can se the logs in CloudWatch Logs, the log groups are `just-a-db/database-logs` and `just-a-db/backup-logs`.
-- You can se the backups in S3, they will be separated by database, each database will have a folder with the name of the database and the backups will be inside that folder, the backups will be named with the following format `backup_<database_name>_<timestamp>.sql.gz` and it will deltete the oldest ones keeping only the 3 most recent backups.
+- You can see the logs in CloudWatch Logs, the log groups are `just-a-db/database-logs` and `just-a-db/backup-logs`.
+- You can see the backups in S3 organized by database name, with files named `backup_<database_name>_<timestamp>.sql.gz`. Only the 3 most recent backups are kept, the oldest ones are deleted.
 - The default database is created with the name `just-a-db`.
 - The credentials are created in the deployment stack process, you can see them executing the command `make credentials`, it will store the credentials in the `credentials.txt` file.
 - In the root folder you will find `just-a-db.pem` file, that is the private key for the ec2 instance, you need to keep it safe and secure.
@@ -41,6 +41,6 @@ That's all, it will create the following infrastructure in you aws account:
 
 ### Useful commands
 
-- `make connect` Connecto to the ec2 instance using the private key via ssh.
+- `make connect` Connect to the ec2 instance using the private key via ssh.
 - `make credentials` Get the credentials for the database and store them in the `credentials.txt` file.
 - `make destroy` Destroy the infrastructure (aws cloudformation stack).

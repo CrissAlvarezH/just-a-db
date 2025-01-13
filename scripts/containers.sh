@@ -30,17 +30,7 @@ function register_backup_cron() {
   fi
 
   echo "Adding cron job to run backup at '${cron}'"
-  crontab -l | { cat; echo "${cron} cd /home/ec2-user/just-a-db && /usr/local/bin/docker-compose run --rm backups >> /home/ec2-user/just-a-db/backups.log 2>&1"; } | crontab -
-
-  echo "Add log rotationg configuration"
-  sudo bash -c "echo '/home/ec2-user/just-a-db/backups.log {
-    rotate 7
-    daily
-    compress
-    missingok
-    notifempty
-    create 644 root root
-  }' > /etc/logrotate.d/db-backup"
+  crontab -l | { cat; echo "${cron} cd /home/ec2-user/just-a-db && /usr/local/bin/docker-compose up -d backups"; } | crontab -
 }
 
 
