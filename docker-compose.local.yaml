@@ -11,11 +11,6 @@ services:
       - .db.env
     volumes:
       - dbdata:/var/lib/postgresql/data
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ${AWS_REGION}
-        awslogs-group: just-a-db/database-logs
 
   backups:
     image: just-a-db-backups
@@ -26,12 +21,6 @@ services:
     env_file:
       - .db.env
       - .backup.env
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: ${AWS_REGION}
-        awslogs-group: just-a-db/backups-logs
 
 volumes:
   dbdata: {}
-

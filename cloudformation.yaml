@@ -52,8 +52,8 @@ Resources:
             cd /home/ec2-user/just-a-db
 
             sh ./scripts/entrypoint.sh register-backup-cron "${BackupCronExpression}"
-            sh ./scripts/entrypoint.sh generate-env-files
             export S3_BUCKET=${ResourcesBucketName}
+            sh ./scripts/entrypoint.sh generate-env-files
             sh ./scripts/entrypoint.sh start
           EOF
 
