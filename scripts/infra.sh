@@ -95,7 +95,7 @@ function get_instance_ip() {
   ip=$(aws cloudformation describe-stacks \
     --stack-name just-a-db \
     --region $AWS_REGION \
-    --query "Stacks[0].Outputs[?OutputKey=='InstancePublicIp'].OutputValue" \
+    --query "Stacks[0].Outputs[?OutputKey=='ElasticIP'].OutputValue" \
     --output text)
 
   echo $ip

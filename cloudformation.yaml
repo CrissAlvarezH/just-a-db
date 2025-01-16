@@ -71,6 +71,14 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           CidrIp: 0.0.0.0/0
+  
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref Instance
+      Tags:
+        - Key: Name
+          Value: just-a-db
 
   InstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -129,6 +137,6 @@ Resources:
       RetentionInDays: 14
 
 Outputs:
-  InstancePublicIp:
-    Description: The public IP address of the EC2 instance
-    Value: !GetAtt Instance.PublicIp
+  ElasticIP:
+    Description: The elastic IP address of the EC2 instance
+    Value: !Ref ElasticIP 
