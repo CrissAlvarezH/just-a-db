@@ -71,6 +71,11 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           CidrIp: 0.0.0.0/0
+        # pgbouncer (TLS required). Once clients use it, 5432 above can go.
+        - IpProtocol: tcp
+          FromPort: 6432
+          ToPort: 6432
+          CidrIp: 0.0.0.0/0
   
   ElasticIP:
     Type: AWS::EC2::EIP

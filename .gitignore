@@ -5,6 +5,7 @@
 .db.env
 .backup.env
 credentials.txt
+certs/
 
 just-a-db.pem
 user_data_output*.log

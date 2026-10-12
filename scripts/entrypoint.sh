@@ -40,6 +40,9 @@ case $action in
   "start")
     start
     ;;
+  "generate-certs")
+    generate_certs
+    ;;
   "credentials")
     get_credentials
     ;;
