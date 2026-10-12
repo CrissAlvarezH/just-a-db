@@ -33,6 +33,11 @@ listen_addr = 0.0.0.0
 listen_port = 6432
 auth_type = scram-sha-256
 auth_file = $CONF_DIR/userlist.txt
+; Other roles (e.g. a database's own user, created from the panel) are looked
+; up in Postgres, so they work here without editing userlist.txt.
+auth_user = $POSTGRES_USER
+auth_dbname = postgres
+auth_query = SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename = \$1
 admin_users = $POSTGRES_USER
 stats_users = $POSTGRES_USER
 

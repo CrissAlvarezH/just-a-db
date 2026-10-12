@@ -11,6 +11,7 @@ make connect
 cd ~/just-a-db
 git pull
 sh ./scripts/entrypoint.sh generate-certs
+cp -n .panel.env.example .panel.env   # docker-compose needs it to exist (step 7 fills it in)
 ```
 
 Optional, in `.backup.env`:
@@ -36,10 +37,10 @@ docker-compose run --rm backups
 aws s3 ls s3://<bucket>/ --recursive | tail
 ```
 
-## 4. Open port 6432
+## 4. Open ports 6432, 80 and 443
 
-Either update the stack (`cloudformation.yaml` now has the 6432 rule; only the
-security group changes):
+Either update the stack (`cloudformation.yaml` now has the rules for pgbouncer
+and the panel; only the security group changes):
 
 ```shell
 aws cloudformation update-stack --stack-name just-a-db \
@@ -51,7 +52,7 @@ aws cloudformation update-stack --stack-name just-a-db \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
-or add an inbound rule for TCP 6432 to the `just-a-db` security group in the console.
+or add inbound rules for TCP 6432, 80 and 443 to the `just-a-db` security group in the console.
 
 ## 5. Move clients to pgbouncer
 
@@ -68,6 +69,28 @@ Once nothing connects to 5432 from outside:
 - Remove the 5432 rule from the security group.
 - In `docker-compose.yaml`, change the database port to `"127.0.0.1:5432:5432"`
   (still reachable from the instance itself) and run `docker-compose up -d database`.
+
+## 7. Admin panel (optional)
+
+1. Point a domain to the Elastic IP (an `A` record, e.g. `db.example.com`).
+2. In Brevo, verify the sender (or its domain) and create an API key. If the key
+   has "authorized IPs" on, add the Elastic IP.
+3. Fill in `.panel.env` (see `.panel.env.example`): `PANEL_DOMAIN`,
+   `ALLOWED_EMAILS`, `BREVO_API_KEY`, `MAIL_FROM`, `PUBLIC_DB_HOST`.
+4. Restart pgbouncer (it now looks up every role in Postgres, so users created
+   from the panel can log in through it), then start the panel:
+
+   ```shell
+   docker-compose build pgbouncer panel
+   docker-compose up -d pgbouncer panel caddy
+   docker-compose logs -f caddy   # wait for "certificate obtained successfully"
+   ```
+
+5. Open `https://<PANEL_DOMAIN>` and log in with a code sent to your email.
+
+If the backups page says it can't reach S3 with an IMDS error, let containers
+reach the instance role:
+`aws ec2 modify-instance-metadata-options --instance-id <id> --http-put-response-hop-limit 2`.
 
 ---
 

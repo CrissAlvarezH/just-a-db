@@ -1,0 +1,21 @@
+{{define "content"}}
+{{$csrf := .CSRF}}
+{{with .Data}}
+<section class="card narrow">
+  <h1>Borrar {{.Name}}</h1>
+  <p>Se cierran sus conexiones y se borra la base con todos sus datos. No se puede deshacer.</p>
+  {{if .LastBackup}}
+    <p class="muted">Último backup: {{time .LastBackup.Modified}} ({{bytes .LastBackup.Size}}). Los backups en S3 no se borran.</p>
+  {{else}}
+    <p class="warn-box">Esta base no tiene backups en S3.</p>
+  {{end}}
+  <form method="post" action="/databases/{{.Name}}/delete" class="stack">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label>Escribe <strong>{{.Name}}</strong> para confirmar <input name="confirm" required autocomplete="off"></label>
+    <label class="check"><input type="checkbox" name="drop_owner" checked> Borrar también su usuario dueño</label>
+    <button class="danger">Borrar definitivamente</button>
+  </form>
+  <p><a href="/">Cancelar</a></p>
+</section>
+{{end}}
+{{end}}

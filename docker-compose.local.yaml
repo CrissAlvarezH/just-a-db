@@ -64,6 +64,28 @@ services:
       database:
         condition: service_healthy
 
+  # Admin UI on http://localhost:8080. Login codes are printed in its logs
+  # (DEV_LOG_CODES) instead of emailed.
+  panel:
+    image: just-a-db-panel
+    build:
+      context: .
+      dockerfile: panel/Dockerfile
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - .db.env
+      - .backup.env
+    environment:
+      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-admin@localhost}
+      DEV_LOG_CODES: "true"
+      SECURE_COOKIES: "false"
+      TRUST_PROXY: "false"
+    depends_on:
+      database:
+        condition: service_healthy
+
   backups:
     image: just-a-db-backups
     build:

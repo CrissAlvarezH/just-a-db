@@ -26,6 +26,12 @@ function generate_env_files() {
   echo "S3_BUCKET=${S3_BUCKET}" > .backup.env
   echo "# Optional: healthchecks.io-style URL, pinged on success (and /start, /fail)" >> .backup.env
   echo "BACKUP_HEALTHCHECK_URL=" >> .backup.env
+
+  # docker-compose needs the file to exist; the panel is started by hand once
+  # it's filled in (see README).
+  if [ ! -f .panel.env ]; then
+    cp .panel.env.example .panel.env
+  fi
 }
 
 # Self-signed certificate for pgbouncer's TLS. Clients use sslmode=require

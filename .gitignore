@@ -4,6 +4,7 @@
 .env
 .db.env
 .backup.env
+.panel.env
 credentials.txt
 certs/
 

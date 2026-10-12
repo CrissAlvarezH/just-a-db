@@ -1,0 +1,82 @@
+{{define "content"}}
+{{$csrf := .CSRF}}
+{{with .Data}}
+<section class="stats">
+  <div><span class="muted">Postgres</span><strong>{{.Server.Version}}</strong></div>
+  <div><span class="muted">Conexiones</span><strong>{{.Server.Connections}} / {{.Server.MaxConnections}}</strong></div>
+  <div><span class="muted">Encendido desde</span><strong>{{time .Server.StartedAt}}</strong></div>
+</section>
+
+<section class="card">
+  <h2>Bases de datos</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Nombre</th><th>Dueño</th><th>Tamaño</th><th>Conexiones</th><th></th></tr></thead>
+    <tbody>
+    {{range .Databases}}
+      <tr>
+        <td><strong>{{.Name}}</strong>
+          {{if .PublicConnect}}<span class="tag warn" title="Cualquier usuario puede conectarse a esta base">abierta</span>{{end}}
+        </td>
+        <td>{{.Owner}}</td>
+        <td>{{bytes .Size}}</td>
+        <td>{{.Connections}}</td>
+        <td class="actions">
+          {{if $.Backups}}<a href="/backups/f/{{.Name}}">Backups</a>{{end}}
+          {{if .PublicConnect}}
+          <form method="post" action="/databases/{{.Name}}/restrict" data-confirm="¿Cerrar {{.Name}} para que solo su dueño ({{.Owner}}) y el superusuario puedan conectarse?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <button class="link">Restringir</button>
+          </form>
+          {{end}}
+          <a class="danger" href="/databases/{{.Name}}/delete">Borrar</a>
+        </td>
+      </tr>
+    {{else}}
+      <tr><td colspan="5" class="muted">No hay bases de datos.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Nueva base de datos</h2>
+  <p class="muted">Se crea con un usuario del mismo nombre, dueño de la base y sin acceso a las demás.</p>
+  <form method="post" action="/databases" class="row">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <input name="name" required pattern="[a-z][a-z0-9_]{1,40}" placeholder="mi_app" title="Minúsculas, números y _, empezando por letra" autocomplete="off">
+    <button>Crear</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Usuarios</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Usuario</th><th>Dueño de</th><th></th></tr></thead>
+    <tbody>
+    {{range .Roles}}
+      <tr>
+        <td><strong>{{.Name}}</strong>
+          {{if .Superuser}}<span class="tag">superusuario</span>{{end}}
+          {{if not .CanLogin}}<span class="tag">sin login</span>{{end}}
+        </td>
+        <td>{{join .Owns ", "}}</td>
+        <td class="actions">
+          {{if not .Superuser}}
+          <form method="post" action="/roles/{{.Name}}/password" data-confirm="¿Generar una nueva contraseña para {{.Name}}? La actual deja de funcionar y las apps que la usan tendrán que actualizarse.">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            {{if .Owns}}<input type="hidden" name="database" value="{{index .Owns 0}}">{{end}}
+            <button class="link">Nueva contraseña</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+{{end}}

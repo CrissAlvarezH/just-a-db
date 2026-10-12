@@ -43,6 +43,24 @@ That's all, it will create the following infrastructure in you aws account:
 - In the root folder you will find `just-a-db.pem` file, that is the private key for the ec2 instance, you need to keep it safe and secure.
 
 
+### Admin panel
+
+A small web panel (`panel/`, Go + plain HTML, ~5 MB of RAM) behind caddy with
+automatic HTTPS:
+
+- Log in with a 6-digit code sent by email (Brevo) to one of `ALLOWED_EMAILS`.
+- See databases (size, connections), users, and Postgres' connection usage.
+- Create a database with its own user (owner of the database, without access to
+  the others); the connection URL is shown once.
+- New password for a user, close a database to other users, delete a database.
+- Browse and download backups (short-lived S3 links), and run a backup now.
+
+Set it up with `.panel.env` (see `.panel.env.example`) and
+`docker-compose up -d --build panel caddy`; details in
+[docs/UPGRADE.md](docs/UPGRADE.md#7-admin-panel-optional). Locally,
+`docker-compose -f docker-compose.local.yaml up panel` serves it on
+http://localhost:8080 and prints login codes in its logs.
+
 ### Useful commands
 
 - `make connect` Connect to the ec2 instance using the private key via ssh.

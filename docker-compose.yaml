@@ -74,6 +74,43 @@ services:
         awslogs-region: ${AWS_REGION}
         awslogs-group: just-a-db/database-logs
 
+  # Admin UI (panel/), only reachable through caddy below.
+  panel:
+    image: just-a-db-panel
+    build:
+      context: .
+      dockerfile: panel/Dockerfile
+    restart: always
+    env_file:
+      - .db.env
+      - .backup.env
+      - .panel.env
+    environment:
+      AWS_REGION: ${AWS_REGION}
+    depends_on:
+      database:
+        condition: service_healthy
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION}
+        awslogs-group: just-a-db/database-logs
+
+  # HTTPS in front of the panel, with an automatic Let's Encrypt certificate.
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file:
+      - .panel.env
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    depends_on:
+      - panel
+
   backups:
     image: just-a-db-backups
     build:
@@ -92,3 +129,4 @@ services:
 
 volumes:
   dbdata: {}
+  caddydata: {}

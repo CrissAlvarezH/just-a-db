@@ -1,0 +1,33 @@
+{{define "content"}}
+{{$csrf := .CSRF}}
+{{with .Data}}
+<section class="card">
+  <h2>Backups en S3</h2>
+  <ul class="folders">
+    {{range .Folders}}
+      <li><a href="/backups/f/{{.}}">{{if eq . "_globals"}}_globals <span class="muted">(usuarios y roles)</span>{{else}}{{.}}{{end}}</a></li>
+    {{else}}
+      <li class="muted">Todavía no hay backups.</li>
+    {{end}}
+  </ul>
+</section>
+
+<section class="card">
+  <h2>Backup manual</h2>
+  <p class="muted">Corre el mismo script del backup nocturno: todas las bases, y después borra los que pasen del límite.</p>
+  <form method="post" action="/backups/run" class="row">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <button {{if .Run.Running}}disabled{{end}}>{{if .Run.Running}}Corriendo…{{else}}Hacer backup ahora{{end}}</button>
+  </form>
+  {{if not .Run.Started.IsZero}}
+    <p>
+      Iniciado {{time .Run.Started}}
+      {{if .Run.Running}}<span class="tag">en curso</span>
+      {{else if .Run.OK}}<span class="tag ok">terminó bien</span> {{time .Run.Finished}}
+      {{else}}<span class="tag warn">falló</span> {{time .Run.Finished}}{{end}}
+    </p>
+    <pre class="log">{{.Run.Log}}</pre>
+  {{end}}
+</section>
+{{end}}
+{{end}}
