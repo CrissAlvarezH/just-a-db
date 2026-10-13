@@ -124,3 +124,55 @@ document.querySelectorAll("[data-tip]").forEach((el) => {
   el.addEventListener("blur", hideTip);
 });
 window.addEventListener("scroll", hideTip, true);
+
+// Buttons with data-open="<dialog id>" open that modal.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-open]");
+  if (btn) document.getElementById(btn.dataset.open)?.showModal();
+});
+
+// Backup picker on the new database form: a click picks, a double click
+// picks and closes; Seleccionar copies it into the form's hidden field.
+const picker = document.getElementById("backup-dialog");
+if (picker) {
+  const form = document.querySelector('form[action="/databases"]');
+  const key = slot(form, "backup-key")[0];
+  const label = slot(form, "backup-label")[0];
+  const clear = slot(form, "backup-clear")[0];
+  const ok = slot(picker, "backup-ok")[0];
+  const filter = slot(picker, "backup-filter")[0];
+
+  const setLabel = (text) => {
+    const [folder, rest] = text.split("|");
+    const strong = document.createElement("strong");
+    strong.textContent = folder;
+    label.replaceChildren(strong, ` · ${rest}`);
+  };
+
+  picker.addEventListener("change", () => (ok.disabled = false));
+  picker.addEventListener("dblclick", (e) => {
+    if (e.target.closest(".pick")) picker.close("ok");
+  });
+  filter.addEventListener("input", () => {
+    const q = filter.value.trim().toLowerCase();
+    picker.querySelectorAll(".pick-group").forEach((g) => (g.hidden = !g.dataset.folder.includes(q)));
+  });
+  picker.addEventListener("close", () => {
+    if (picker.returnValue !== "ok") return;
+    const radio = picker.querySelector("input[name=pick]:checked");
+    if (!radio) return;
+    key.value = radio.value;
+    setLabel(radio.nextElementSibling.dataset.label);
+    clear.hidden = false;
+  });
+  // returnValue sticks between openings: reset it each time.
+  picker.addEventListener("cancel", () => (picker.returnValue = ""));
+  form.querySelector('[data-open="backup-dialog"]').addEventListener("click", () => (picker.returnValue = ""));
+  clear.addEventListener("click", () => {
+    key.value = "";
+    label.textContent = "Vacía";
+    clear.hidden = true;
+    picker.querySelectorAll("input[name=pick]").forEach((r) => (r.checked = false));
+    ok.disabled = true;
+  });
+}

@@ -158,6 +158,9 @@ button.secondary { background: none; color: var(--text); border: 1px solid var(-
   color: var(--text);
   box-shadow: 0 20px 50px rgb(0 0 0 / 0.25);
 }
+.modal.wide { width: min(560px, calc(100vw - 32px)); }
+.modal h3 { margin: 12px 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.modal input[type="search"] { margin: 4px 0 8px; }
 .modal::backdrop { background: rgb(0 0 0 / 0.45); }
 .modal > form { padding: 20px; }
 .modal p { margin: 0 0 16px; }
@@ -259,3 +262,20 @@ details summary { cursor: pointer; margin-bottom: 8px; }
   pointer-events: none;
 }
 .tag[data-tip] { cursor: help; }
+
+/* Backup picker (new database). */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.picked {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 8px 8px 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg);
+}
+.picked-actions { display: flex; align-items: center; gap: 12px; }
+.pick-list { max-height: min(420px, 60vh); overflow-y: auto; margin: 0 -8px; padding: 0 8px; }
+.pick {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer;
+}
+.pick:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.pick:has(input:checked) { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.pick input { position: absolute; opacity: 0; pointer-events: none; }
+.pick-main { flex: 1; font-variant-numeric: tabular-nums; }
