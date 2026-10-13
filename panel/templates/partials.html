@@ -1,13 +1,23 @@
 {{/* Credentials shown once, after creating a database or a new password. */}}
 {{define "creds"}}
 <p class="warn-box">Guarda estos datos ahora: la contraseña no se vuelve a mostrar.</p>
+
+<div class="env-head">
+  <h2>.env</h2>
+  <button type="button" class="secondary" data-copy="{{.Env}}">Copiar todo</button>
+</div>
+<pre class="log env">{{.Env}}</pre>
+
 <dl class="creds">
-  <dt>Usuario</dt><dd><code>{{.User}}</code></dd>
-  <dt>Contraseña</dt><dd><code>{{.Password}}</code> <button type="button" class="link" data-copy="{{.Password}}">Copiar</button></dd>
-  <dt>Base de datos</dt><dd><code>{{.Database}}</code></dd>
+  <dt>DB_HOST</dt><dd><code>{{.Host}}</code> <button type="button" class="link" data-copy="{{.Host}}">Copiar</button></dd>
+  <dt>DB_PORT</dt><dd><code>{{.Port}}</code> <button type="button" class="link" data-copy="{{.Port}}">Copiar</button></dd>
+  <dt>DB_USER</dt><dd><code>{{.User}}</code> <button type="button" class="link" data-copy="{{.User}}">Copiar</button></dd>
+  <dt>DB_PASS</dt><dd><code class="break">{{.Password}}</code> <button type="button" class="link" data-copy="{{.Password}}">Copiar</button></dd>
+  <dt>DB_NAME</dt><dd><code>{{.Database}}</code> <button type="button" class="link" data-copy="{{.Database}}">Copiar</button></dd>
+  <dt>DB_SSLMODE</dt><dd><code>require</code> <button type="button" class="link" data-copy="require">Copiar</button></dd>
   <dt>URL</dt><dd><code class="break">{{.URL}}</code> <button type="button" class="link" data-copy="{{.URL}}">Copiar</button></dd>
 </dl>
-<p class="muted">Se conecta por PgBouncer (modo transacción): desactiva los prepared statements en el cliente, por ejemplo <code>prepare: false</code> en postgres.js.</p>
+<p class="muted">Se conecta por PgBouncer (modo transacción) con TLS: desactiva los prepared statements en el cliente, por ejemplo <code>prepare: false</code> en postgres.js.</p>
 {{end}}
 
 {{/* Reloads the page: the data is read from Postgres/S3 on every load. */}}

@@ -305,10 +305,14 @@ func redirectNotice(w http.ResponseWriter, r *http.Request, to, notice string) {
 
 type credentials struct {
 	Title    string
+	Host     string
+	Port     string
 	User     string
 	Password string
 	Database string
 	URL      string
+	// The same as DB_* lines, to paste into a .env or Vercel's import.
+	Env string
 }
 
 func (a *App) credentialsFor(title, user, password, database string) credentials {
@@ -319,7 +323,16 @@ func (a *App) credentialsFor(title, user, password, database string) credentials
 		Path:     "/" + database,
 		RawQuery: "sslmode=require",
 	}
-	return credentials{Title: title, User: user, Password: password, Database: database, URL: u.String()}
+	env := strings.Join([]string{
+		"DB_HOST=" + a.cfg.PublicDBHost,
+		"DB_PORT=" + a.cfg.PublicDBPort,
+		"DB_USER=" + user,
+		"DB_PASS=" + password,
+		"DB_NAME=" + database,
+		"DB_SSLMODE=require",
+	}, "\n")
+	return credentials{Title: title, Host: a.cfg.PublicDBHost, Port: a.cfg.PublicDBPort, User: user,
+		Password: password, Database: database, URL: u.String(), Env: env}
 }
 
 // Restores run inside the request (the new password is only shown in its

@@ -191,6 +191,10 @@ a.danger { color: var(--danger); }
 .error { background: var(--warn-bg); color: var(--danger); }
 .warn-box { background: var(--warn-bg); color: var(--warn-text); }
 
+.env-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 8px; }
+.env-head h2 { margin: 0; font-size: 15px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.log.env { font-size: 13px; margin: 0 0 20px; }
+.creds dt { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .creds { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; }
 .creds dt { color: var(--muted); }
 .creds dd { margin: 0; }
