@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -57,5 +58,20 @@ func TestConsoleURL(t *testing.T) {
 	want := "https://us-east-1.console.aws.amazon.com/cloudwatch/home?region=us-east-1#logsV2:log-groups/log-group/just-a-db$252Fbackup-runs/log-events/2026-10-13_02-00-03_all_nightly"
 	if got := b.ConsoleURL("2026-10-13_02-00-03_all_nightly"); got != want {
 		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}
+
+func TestSortByLatestBackup(t *testing.T) {
+	at := func(h int) *BackupObject {
+		return &BackupObject{Modified: time.Date(2026, 10, 13, h, 0, 0, 0, time.UTC)}
+	}
+	rows := []backupSummary{{Name: "a", Latest: at(1)}, {Name: "none"}, {Name: "c", Latest: at(3)}, {Name: "b", Latest: at(3)}, {Name: "d", Latest: at(2)}}
+	sortByLatestBackup(rows)
+	var got []string
+	for _, r := range rows {
+		got = append(got, r.Name)
+	}
+	if want := "b c d a none"; strings.Join(got, " ") != want {
+		t.Errorf("got %v, want %s", got, want)
 	}
 }

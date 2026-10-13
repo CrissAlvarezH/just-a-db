@@ -662,6 +662,23 @@ func (a *App) runPage(w http.ResponseWriter, r *http.Request) {
 	a.render(w, r, "run", http.StatusOK, Page{Title: "Corrida de backup", Nav: "backups", Error: errMsg, Data: run})
 }
 
+// sortByLatestBackup puts the newest last backup first; databases without
+// backups go last, then by name.
+func sortByLatestBackup(rows []backupSummary) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i].Latest, rows[j].Latest
+		switch {
+		case a == nil || b == nil:
+			if (a == nil) != (b == nil) {
+				return b == nil
+			}
+		case !a.Modified.Equal(b.Modified):
+			return a.Modified.After(b.Modified)
+		}
+		return rows[i].Name < rows[j].Name
+	})
+}
+
 // backupSummaries fills one row per database in Postgres or folder in S3.
 func (a *App) backupSummaries(ctx context.Context, data *backupsData) (string, error) {
 	rows := map[string]*backupSummary{}
@@ -704,10 +721,10 @@ func (a *App) backupSummaries(ctx context.Context, data *backupsData) (string, e
 			data.Globals = row
 		}
 	}
-	sort.Strings(names)
 	for _, n := range names {
 		data.Databases = append(data.Databases, *rows[n])
 	}
+	sortByLatestBackup(data.Databases)
 	return "", nil
 }
 
