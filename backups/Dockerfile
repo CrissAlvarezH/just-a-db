@@ -1,7 +1,7 @@
 # Same major version as the database: pg_dump refuses to dump a newer server.
 FROM postgres:17-alpine
 
-RUN apk add --no-cache aws-cli bash
+RUN apk add --no-cache aws-cli bash jq
 
 WORKDIR /app
 

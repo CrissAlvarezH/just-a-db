@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -99,11 +100,19 @@ func NewApp(cfg Config, db *DB, auth *Auth, backups *Backups, system *System) *A
 			}
 			return fmt.Sprintf("hace %d días", int(d.Hours()/24))
 		},
+		// How long a backup run took: "45 s", "3 min 20 s".
+		"took": func(from, to time.Time) string {
+			d := to.Sub(from).Round(time.Second)
+			if d < time.Minute {
+				return fmt.Sprintf("%d s", int(d.Seconds()))
+			}
+			return fmt.Sprintf("%d min %d s", int(d.Minutes()), int(d.Seconds())%60)
+		},
 		// Older than a day and a bit: the nightly backup isn't covering it.
 		"stale": func(t time.Time) bool { return time.Since(t) > 26*time.Hour },
 	}
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"login", "verify", "databases", "new", "created", "delete", "backups", "folder", "user"} {
+	for _, name := range []string{"login", "verify", "databases", "new", "created", "delete", "backups", "folder", "run", "user"} {
 		pages[name] = template.Must(template.New("").Funcs(funcs).ParseFS(assets,
 			"templates/layout.html", "templates/partials.html", "templates/"+name+".html"))
 	}
@@ -145,6 +154,7 @@ func (a *App) Routes() http.Handler {
 
 	mux.HandleFunc("GET /backups", a.authed(a.backupsPage))
 	mux.HandleFunc("GET /backups/f/{folder}", a.authed(a.folderPage))
+	mux.HandleFunc("GET /backups/runs/{stream}", a.authed(a.runPage))
 	mux.HandleFunc("GET /backups/download", a.authed(a.download))
 	mux.HandleFunc("POST /backups/run", a.authed(a.runBackup))
 
@@ -614,12 +624,42 @@ func (a *App) backupsPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("backups: %v", err)
 	}
-	if data.Recent, err = a.backups.RecentRuns(r.Context(), 3); err != nil {
+	// CloudWatch must not hold the page: past this, it shows without the runs.
+	ctx, cancel := context.WithTimeout(r.Context(), runsTimeout)
+	defer cancel()
+	if data.Recent, err = a.backups.RecentRuns(ctx, recentRuns); err != nil {
 		log.Printf("backup runs: %v", err)
 		data.RecentErr = "No se pudieron leer las corridas de CloudWatch: " + err.Error()
 	}
 	a.render(w, r, "backups", http.StatusOK, Page{Title: "Backups", Nav: "backups",
 		Notice: r.URL.Query().Get("notice"), Error: errMsg, Data: data})
+}
+
+const (
+	recentRuns  = 10
+	runsTimeout = 10 * time.Second
+)
+
+// runPage shows one backup run's log, from its CloudWatch stream.
+func (a *App) runPage(w http.ResponseWriter, r *http.Request) {
+	if a.backups == nil {
+		http.NotFound(w, r)
+		return
+	}
+	stream := r.PathValue("stream")
+	ctx, cancel := context.WithTimeout(r.Context(), runsTimeout)
+	defer cancel()
+	run, err := a.backups.RunLog(ctx, stream)
+	if errors.Is(err, errRunNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	errMsg := ""
+	if err != nil {
+		log.Printf("backup run %q: %v", stream, err)
+		errMsg = "No se pudo leer el log de CloudWatch: " + err.Error()
+	}
+	a.render(w, r, "run", http.StatusOK, Page{Title: "Corrida de backup", Nav: "backups", Error: errMsg, Data: run})
 }
 
 // backupSummaries fills one row per database in Postgres or folder in S3.

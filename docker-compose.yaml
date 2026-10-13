@@ -125,11 +125,12 @@ services:
     env_file:
       - .db.env
       - .backup.env
+    environment:
+      AWS_REGION: ${AWS_REGION}
+    # run.sh sends each run's log to CloudWatch itself (just-a-db/backup-runs,
+    # one stream per run); Docker only keeps a local copy (`docker logs`).
     logging:
-      driver: awslogs
-      options:
-        awslogs-region: ${AWS_REGION}
-        awslogs-group: just-a-db/backups-logs
+      driver: local
 
 volumes:
   dbdata: {}

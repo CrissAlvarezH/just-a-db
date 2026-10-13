@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,14 +27,14 @@ import (
 const backupLogLines = 200
 
 type Backups struct {
-	bucket   string
-	script   string
-	client   *s3.Client
-	presign  *s3.PresignClient
-	logs     *cloudwatchlogs.Client
-	logGroup string // the backups container's (nightly runs)
-	// The panel's own (manual runs).
-	panelLogGroup string
+	bucket  string
+	script  string
+	client  *s3.Client
+	presign *s3.PresignClient
+	logs    *cloudwatchlogs.Client
+	region  string
+	// Where run.sh writes each run's log, one stream per run ("" = none).
+	runsGroup string
 
 	mu       sync.Mutex
 	running  bool
@@ -68,17 +70,20 @@ func NewBackups(ctx context.Context, cfg Config) (*Backups, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Same default as backups/run.sh; set but empty means no CloudWatch.
+	runsGroup := "just-a-db/backup-runs"
+	if v, ok := os.LookupEnv("BACKUP_RUN_LOG_GROUP"); ok {
+		runsGroup = strings.TrimSpace(v)
+	}
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = cfg.S3PathStyle })
 	return &Backups{
-		bucket:  cfg.S3Bucket,
-		script:  cfg.BackupScript,
-		client:  client,
-		presign: s3.NewPresignClient(client),
-		logs:    cloudwatchlogs.NewFromConfig(awsCfg),
-		// Same default as backups/run.sh.
-		// The groups docker-compose.yaml sends each container's output to.
-		logGroup:      env("BACKUP_LOG_GROUP", "just-a-db/backups-logs"),
-		panelLogGroup: env("PANEL_LOG_GROUP", "just-a-db/database-logs"),
+		bucket:    cfg.S3Bucket,
+		script:    cfg.BackupScript,
+		client:    client,
+		presign:   s3.NewPresignClient(client),
+		logs:      cloudwatchlogs.NewFromConfig(awsCfg),
+		region:    awsCfg.Region,
+		runsGroup: runsGroup,
 	}, nil
 }
 
@@ -133,135 +138,145 @@ func (b *Backups) List(ctx context.Context, folder string) ([]BackupObject, erro
 	return out, nil
 }
 
-// BackupRunLog is one run of backups/run.sh (nightly or manual), read from
-// CloudWatch Logs: between its "=== Backup run started" and "=== Backup run
-// finished" lines.
+// BackupRunLog is one run of backups/run.sh (nightly or manual): its own
+// CloudWatch Logs stream, named <UTC start>_<scope>_<trigger>.
 type BackupRunLog struct {
+	Stream  string
 	Started time.Time
-	Result  string // "ok" or "failed"
-	Scope   string // "all" or a database name
-	Log     string
+	Last    time.Time // its latest line
+	Scope   string    // "all" or a database name
+	Trigger string    // "nightly" or "manual"
+	// "ok", "failed", "running" (no end yet, recent lines) or "interrupted".
+	Result     string
+	ConsoleURL string // the stream in the CloudWatch console
+	Log        string // only from RunLog
 }
 
-const (
-	runStarted  = "=== Backup run started"
-	runFinished = "=== Backup run finished"
-	// Prefix of run.sh's lines in the panel's own output (manual runs).
-	panelBackupPrefix = "[backup] "
-	// How far back to look: FilterLogEvents scans every event in range.
-	runsLookback = 7 * 24 * time.Hour
+const runStarted = "=== Backup run started"
+
+var (
+	runFinishedLine = regexp.MustCompile(`=== Backup run finished: (ok|failed) \((.+)\)`)
+	runStreamName   = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})_(.+)_(nightly|manual)$`)
 )
 
-var runFinishedLine = regexp.MustCompile(`=== Backup run finished: (ok|failed) \((.+)\)`)
+// A run without its "finished" line whose log hasn't moved for this long was
+// killed before it could finish (run.sh sends its log after every database).
+const runStaleAfter = 30 * time.Minute
 
-type runEvent struct {
-	group, stream string
-	at            int64
-	message       string
+func parseRunStream(name string) (BackupRunLog, bool) {
+	m := runStreamName.FindStringSubmatch(name)
+	if m == nil {
+		return BackupRunLog{}, false
+	}
+	started, err := time.ParseInLocation("2006-01-02_15-04-05", m[1], time.UTC)
+	if err != nil {
+		return BackupRunLog{}, false
+	}
+	return BackupRunLog{Stream: name, Started: started, Scope: m[2], Trigger: m[3]}, true
 }
 
-// RecentRuns returns the latest n finished runs, newest first, with their
-// logs. Nightly runs are in the backups container's log group; manual ones,
-// run by the panel, in the panel's.
-func (b *Backups) RecentRuns(ctx context.Context, n int) ([]BackupRunLog, error) {
-	var finished []runEvent
-	for _, group := range []string{b.logGroup, b.panelLogGroup} {
-		events, err := b.filterEvents(ctx, group, nil, runFinished, time.Now().Add(-runsLookback).UnixMilli(), 0)
-		if err != nil {
-			return nil, err
-		}
-		finished = append(finished, events...)
+// runResult reads a run's result from its last line.
+func runResult(lastLine string, last time.Time, now time.Time) string {
+	if m := runFinishedLine.FindStringSubmatch(lastLine); m != nil {
+		return m[1]
 	}
-	sort.Slice(finished, func(i, j int) bool { return finished[i].at > finished[j].at })
-	if len(finished) > n {
-		finished = finished[:n]
+	if now.Sub(last) < runStaleAfter {
+		return "running"
 	}
+	return "interrupted"
+}
 
+// RecentRuns returns the latest n runs, newest first. Stream names start with
+// the run's start time, so sorting by name sorts by time.
+func (b *Backups) RecentRuns(ctx context.Context, n int) ([]BackupRunLog, error) {
+	if b.runsGroup == "" {
+		return nil, nil
+	}
+	out, err := b.logs.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
+		LogGroupName: aws.String(b.runsGroup),
+		OrderBy:      cwtypes.OrderByLogStreamName,
+		Descending:   aws.Bool(true),
+		Limit:        aws.Int32(int32(n)),
+	})
+	if err != nil {
+		var notFound *cwtypes.ResourceNotFoundException
+		if errors.As(err, &notFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
 	var runs []BackupRunLog
-	for _, end := range finished {
-		run := BackupRunLog{Started: time.UnixMilli(end.at)}
-		if m := runFinishedLine.FindStringSubmatch(end.message); m != nil {
-			run.Result, run.Scope = m[1], m[2]
+	for _, st := range out.LogStreams {
+		run, ok := parseRunStream(aws.ToString(st.LogStreamName))
+		if !ok {
+			continue
 		}
-		// The run's start: the last "started" line before its end, same stream.
-		starts, err := b.filterEvents(ctx, end.group, []string{end.stream}, runStarted,
-			end.at-int64(6*time.Hour/time.Millisecond), end.at+1)
-		if err != nil {
-			return nil, err
+		run.ConsoleURL = b.ConsoleURL(run.Stream)
+		run.Last = run.Started
+		if t := aws.ToInt64(st.LastEventTimestamp); t > 0 {
+			run.Last = time.UnixMilli(t)
 		}
-		from := end.at
-		if len(starts) > 0 {
-			from = starts[len(starts)-1].at
-			run.Started = time.UnixMilli(from)
-		}
-		lines, err := b.streamLines(ctx, end.group, end.stream, from, end.at+1)
-		if err != nil {
-			return nil, err
-		}
-		run.Log = strings.Join(lines, "\n")
 		runs = append(runs, run)
 	}
-	return runs, nil
-}
 
-// filterEvents returns a group's events containing `term`, oldest first.
-// endMs 0 means now.
-func (b *Backups) filterEvents(ctx context.Context, group string, streams []string, term string, startMs, endMs int64) ([]runEvent, error) {
-	in := &cloudwatchlogs.FilterLogEventsInput{
-		LogGroupName:  aws.String(group),
-		FilterPattern: aws.String(`"` + term + `"`),
-		StartTime:     aws.Int64(startMs),
-	}
-	if len(streams) > 0 {
-		in.LogStreamNames = streams
-	}
-	if endMs > 0 {
-		in.EndTime = aws.Int64(endMs)
-	}
-	var out []runEvent
-	p := cloudwatchlogs.NewFilterLogEventsPaginator(b.logs, in)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
-		if err != nil {
-			var notFound *cwtypes.ResourceNotFoundException
-			if errors.As(err, &notFound) {
-				return nil, nil
+	// Each run's last line says how it ended.
+	var wg sync.WaitGroup
+	errs := make([]error, len(runs))
+	for i := range runs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ev, err := b.logs.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
+				LogGroupName:  aws.String(b.runsGroup),
+				LogStreamName: aws.String(runs[i].Stream),
+				StartFromHead: aws.Bool(false),
+				Limit:         aws.Int32(1),
+			})
+			if err != nil {
+				errs[i] = err
+				return
 			}
-			return nil, err
-		}
-		for _, e := range page.Events {
-			out = append(out, runEvent{group: group, stream: aws.ToString(e.LogStreamName),
-				at: aws.ToInt64(e.Timestamp), message: aws.ToString(e.Message)})
-		}
+			last := ""
+			if len(ev.Events) > 0 {
+				e := ev.Events[len(ev.Events)-1]
+				last = aws.ToString(e.Message)
+				runs[i].Last = time.UnixMilli(aws.ToInt64(e.Timestamp))
+			}
+			runs[i].Result = runResult(last, runs[i].Last, time.Now())
+		}()
 	}
-	return out, nil
+	wg.Wait()
+	return runs, errors.Join(errs...)
 }
 
-// streamLines returns a stream's lines between two times. In the panel's
-// stream only run.sh's lines (with their prefix removed) are kept.
-func (b *Backups) streamLines(ctx context.Context, group, stream string, startMs, endMs int64) ([]string, error) {
-	var lines []string
+// RunLog returns one run with its whole log.
+func (b *Backups) RunLog(ctx context.Context, stream string) (BackupRunLog, error) {
+	run, ok := parseRunStream(stream)
+	if !ok || b.runsGroup == "" {
+		return BackupRunLog{}, errRunNotFound
+	}
 	in := &cloudwatchlogs.GetLogEventsInput{
-		LogGroupName:  aws.String(group),
+		LogGroupName:  aws.String(b.runsGroup),
 		LogStreamName: aws.String(stream),
-		StartTime:     aws.Int64(startMs),
-		EndTime:       aws.Int64(endMs),
 		StartFromHead: aws.Bool(true),
 	}
+	var lines []string
+	last := ""
+	run.ConsoleURL = b.ConsoleURL(stream)
+	run.Last = run.Started
 	for page := 0; page < 20; page++ {
 		out, err := b.logs.GetLogEvents(ctx, in)
 		if err != nil {
-			return nil, err
+			var notFound *cwtypes.ResourceNotFoundException
+			if errors.As(err, &notFound) {
+				return BackupRunLog{}, errRunNotFound
+			}
+			return BackupRunLog{}, err
 		}
 		for _, e := range out.Events {
-			line := strings.TrimRight(aws.ToString(e.Message), "\n")
-			if group == b.panelLogGroup {
-				var ok bool
-				if line, ok = strings.CutPrefix(line, panelBackupPrefix); !ok {
-					continue
-				}
-			}
-			lines = append(lines, line)
+			last = strings.TrimRight(aws.ToString(e.Message), "\n")
+			lines = append(lines, last)
+			run.Last = time.UnixMilli(aws.ToInt64(e.Timestamp))
 		}
 		// The same token back means the end of the stream.
 		if len(out.Events) == 0 || aws.ToString(out.NextForwardToken) == aws.ToString(in.NextToken) {
@@ -269,7 +284,19 @@ func (b *Backups) streamLines(ctx context.Context, group, stream string, startMs
 		}
 		in.NextToken = out.NextForwardToken
 	}
-	return lines, nil
+	run.Result = runResult(last, run.Last, time.Now())
+	run.Log = strings.Join(lines, "\n")
+	return run, nil
+}
+
+var errRunNotFound = errors.New("backup run not found")
+
+// ConsoleURL links to a run's stream in the CloudWatch console, which
+// escapes the group and stream names twice, with "$" instead of "%".
+func (b *Backups) ConsoleURL(stream string) string {
+	esc := func(s string) string { return strings.ReplaceAll(url.QueryEscape(url.QueryEscape(s)), "%", "$") }
+	return fmt.Sprintf("https://%[1]s.console.aws.amazon.com/cloudwatch/home?region=%[1]s#logsV2:log-groups/log-group/%s/log-events/%s",
+		b.region, esc(b.runsGroup), esc(stream))
 }
 
 // Latest is a database's newest backup, or nil if it has none.
@@ -329,7 +356,11 @@ func (b *Backups) run(database string) {
 		args = []string{database}
 	}
 	cmd := exec.CommandContext(ctx, b.script, args...)
-	cmd.Env = os.Environ()
+	// run.sh sends its log to CloudWatch itself, tagged as a manual run.
+	cmd.Env = append(os.Environ(), "BACKUP_TRIGGER=manual")
+	// On the hour timeout, SIGTERM first: run.sh still sends its log.
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = time.Minute
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
 	cmd.Stderr = pw
@@ -358,9 +389,6 @@ func (b *Backups) run(database string) {
 }
 
 func (b *Backups) appendLog(line string) {
-	// Also to the panel's output, which Docker sends to CloudWatch, so manual
-	// runs show up in "Últimas corridas" too.
-	fmt.Println(panelBackupPrefix + line)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.logLines = append(b.logLines, line)

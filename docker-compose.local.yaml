@@ -80,6 +80,8 @@ services:
     environment:
       SECURE_COOKIES: "false"
       TRUST_PROXY: "false"
+      # No CloudWatch locally: runs aren't listed.
+      BACKUP_RUN_LOG_GROUP: ""
       # Disk usage shown in the panel: the disk where Postgres' data lives.
       DISK_PATH: /pgdata
     volumes:
@@ -98,6 +100,8 @@ services:
     env_file:
       - .db.env
       - .backup.env
+    environment:
+      BACKUP_RUN_LOG_GROUP: ""
 
 volumes:
   dbdata: {}

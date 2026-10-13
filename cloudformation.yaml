@@ -132,18 +132,19 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: 
-                  - !GetAtt BackupsLogGroup.Arn
                   - !GetAtt DatabaseLogGroup.Arn
-              # The panel lists the latest backup runs: nightly ones in the
-              # backups' group, manual ones in the panel's (database-logs).
+                  - !GetAtt BackupRunsLogGroup.Arn
+              # backups/run.sh writes one stream per run; the panel lists the
+              # latest ones and shows their logs.
               - Effect: Allow
                 Action:
-                  - logs:FilterLogEvents
+                  - logs:DescribeLogStreams
                   - logs:GetLogEvents
                 Resource:
-                  - !GetAtt BackupsLogGroup.Arn
-                  - !GetAtt DatabaseLogGroup.Arn
+                  - !GetAtt BackupRunsLogGroup.Arn
 
+  # Nightly runs until 2026-10-13 (now in BackupRunsLogGroup). Not written
+  # anymore: remove it once its 14 days have passed.
   BackupsLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -154,6 +155,14 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: just-a-db/database-logs
+      RetentionInDays: 14
+
+  # One stream per backup run (backups/run.sh), named
+  # <UTC start>_<all|database>_<nightly|manual>.
+  BackupRunsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: just-a-db/backup-runs
       RetentionInDays: 14
 
 Outputs:

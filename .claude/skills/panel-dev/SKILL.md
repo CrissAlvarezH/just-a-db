@@ -25,8 +25,8 @@ docker compose -f docker-compose.local.yaml up --build -d database pgbouncer pan
   A plain `up` keeps the old image (check with `curl -sI` for a header you changed).
 - If the repo lives under `/private/tmp`, Docker Desktop mounts `certs/` empty
   and pgbouncer runs without TLS: keep the repo under `~/`.
-- CloudWatch ("Últimas corridas") doesn't work locally: the section shows an
-  error, which is expected.
+- No CloudWatch locally: `BACKUP_RUN_LOG_GROUP=""` in docker-compose.local.yaml,
+  so runs aren't sent or listed ("Últimas corridas" stays empty).
 
 ## Testing with curl (no email)
 

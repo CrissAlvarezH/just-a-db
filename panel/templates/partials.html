@@ -27,3 +27,12 @@
   <a class="button secondary" href="{{.Path}}">↻ Actualizar</a>
 </div>
 {{end}}
+
+{{/* A backup run's result (BackupRunLog.Result). */}}
+{{define "runResult"}}
+{{- if eq . "ok"}}<span class="tag ok">bien</span>
+{{- else if eq . "failed"}}<span class="tag warn">falló</span>
+{{- else if eq . "running"}}<span class="tag">en curso</span>
+{{- else}}<span class="tag warn" data-tip="Se detuvo sin terminar (por ejemplo, se reinició el contenedor): el log llega hasta donde iba.">interrumpida</span>
+{{- end}}
+{{end}}

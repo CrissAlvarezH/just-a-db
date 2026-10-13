@@ -69,7 +69,8 @@ to the `database` service gets applied at 02:00 UTC by itself.
 - `certs/` holds pgbouncer's self-signed certificate
   (`sh scripts/entrypoint.sh generate-certs` creates it if missing).
 - Logs go to CloudWatch through Docker's awslogs driver: `just-a-db/database-logs`
-  (Postgres, pgbouncer, panel) and `just-a-db/backups-logs`. On the server,
+  (Postgres, pgbouncer, panel). Backup runs write `just-a-db/backup-runs`
+  themselves (see the `backups` skill). On the server,
   `docker logs <container>` is quicker; from a laptop, the AWS CLI. Postgres
   logs mask role names as `[SENSITIVE]`.
 - Container RAM at rest: Postgres ~120 MB, pgbouncer 3 MB, panel 5 MB, caddy

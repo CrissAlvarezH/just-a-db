@@ -10,3 +10,4 @@ certs/
 
 just-a-db.pem
 user_data_output*.log
+panel/panel

@@ -9,7 +9,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /panel .
 # Same image as the backups container, so "Hacer backup ahora" runs the same
 # run.sh with the same pg_dump.
 FROM postgres:17-alpine
-RUN apk add --no-cache aws-cli bash
+RUN apk add --no-cache aws-cli bash jq
 COPY backups/run.sh /app/run.sh
 COPY --from=build /panel /app/panel
 RUN chmod +x /app/run.sh

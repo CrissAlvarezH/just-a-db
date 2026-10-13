@@ -55,18 +55,28 @@
 
 <section class="card">
   <h2>Últimas corridas</h2>
-  <p class="muted">Las nocturnas y las manuales de los últimos 7 días, desde CloudWatch Logs. Haz clic en una para ver su log.</p>
+  <p class="muted">Las últimas {{len .Recent}} corridas, nocturnas y manuales. Cada una tiene su log en CloudWatch (se guarda 14 días).</p>
   {{if .RecentErr}}<p class="error">{{.RecentErr}}</p>{{end}}
-  {{range .Recent}}
-    <details class="run" {{if eq .Result "failed"}}open{{end}}>
-      <summary>
-        {{if eq .Result "ok"}}<span class="tag ok">bien</span>{{else if eq .Result "failed"}}<span class="tag warn">falló</span>{{else}}<span class="tag">sin resultado</span>{{end}}
-        <strong>{{time .Started}}</strong>
-        <span class="muted">· {{ago .Started}} · {{if eq .Scope "all"}}todas las bases{{else}}solo {{.Scope}}{{end}}</span>
-      </summary>
-      <pre class="log">{{or .Log "(log vacío)"}}</pre>
-    </details>
-  {{else}}
+  {{if .Recent}}
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Resultado</th><th>Inicio</th><th>Duración</th><th>Qué</th><th></th></tr></thead>
+    <tbody>
+    {{range .Recent}}
+      <tr>
+        <td>{{template "runResult" .Result}}</td>
+        <td>{{time .Started}} <span class="muted">· {{ago .Started}}</span></td>
+        <td>{{took .Started .Last}}</td>
+        <td>{{if eq .Scope "all"}}Todas las bases{{else}}Solo <strong>{{.Scope}}</strong>{{end}}
+          <span class="muted">· {{if eq .Trigger "manual"}}manual{{else}}nocturna{{end}}</span></td>
+        <td class="actions"><a href="/backups/runs/{{.Stream}}">Ver log</a>
+          <a href="{{.ConsoleURL}}" target="_blank" rel="noopener">CloudWatch ↗</a></td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else if not .RecentErr}}
     <p class="muted">Todavía no hay corridas registradas. Aparecen desde el próximo backup.</p>
   {{end}}
 </section>
