@@ -29,10 +29,16 @@
       </fieldset>
       <fieldset class="stack">
         <legend>Permisos</legend>
-        <label class="check"><input type="radio" name="access" value="write" {{if not .ReadOnly}}checked{{end}}> Escritura</label>
-        <span class="muted hint">Para las variables de entorno de una app: lee, escribe y corre migraciones, como el dueño de la base (lo que cree queda a nombre del dueño). En una base del superusuario, pasa a ser su dueño (la base y sus tablas); el superusuario sigue entrando igual.</span>
-        <label class="check"><input type="radio" name="access" value="read" {{if .ReadOnly}}checked{{end}}> Solo lectura</label>
-        <span class="muted hint">Para consultar los datos: SELECT en las tablas de hoy y las que se creen después.</span>
+        <div class="choices">
+          <label class="choice"><input type="radio" name="access" value="write" {{if not .ReadOnly}}checked{{end}}>
+            <span><strong>Escritura</strong>
+              <span class="muted hint">Para las variables de entorno de una app: lee, escribe y corre migraciones como el dueño de la base. En una base del superusuario pasa a ser su dueño; el superusuario sigue entrando igual.</span></span>
+          </label>
+          <label class="choice"><input type="radio" name="access" value="read" {{if .ReadOnly}}checked{{end}}>
+            <span><strong>Solo lectura</strong>
+              <span class="muted hint">Para consultar los datos: SELECT en las tablas de hoy y las que se creen después.</span></span>
+          </label>
+        </div>
       </fieldset>
       <button data-busy="Creando…">Crear usuario</button>
     </form>

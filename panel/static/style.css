@@ -105,7 +105,7 @@ td.actions > * { margin-left: 12px; }
 td.actions form { display: inline; }
 
 select,
-input:not([type="checkbox"]) {
+input:not([type="checkbox"], [type="radio"]) {
   font: inherit;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -173,6 +173,23 @@ a.danger { color: var(--danger); }
 .stack label.check { flex-direction: row; align-items: center; gap: 8px; }
 fieldset.stack { border: 0; padding: 0; margin: 0; gap: 8px; }
 fieldset.stack legend { padding: 0; margin-bottom: 8px; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); margin: 0; }
+
+/* Radio choices as cards: title + explanation, the selected one outlined. */
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.stack label.choice {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.stack label.choice:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.choice input { margin-top: 4px; }
+.choice span { display: flex; flex-direction: column; gap: 2px; }
+.choice .hint { font-size: 13px; }
 .row { display: flex; gap: 8px; max-width: 480px; }
 
 .tag {
