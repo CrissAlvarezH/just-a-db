@@ -183,10 +183,11 @@ func (d *DB) CreateDatabase(ctx context.Context, name string) (string, error) {
 // CreateUser creates a login role with access to existing databases it
 // doesn't own:
 //
-//   - write: it acts as each database's owner (member of the owner role, and
-//     its sessions there start as that role), so it can run migrations and
-//     what it creates belongs to the owner, like the app's own user. Refused
-//     when the owner is a superuser: membership would make it one too.
+//   - write: it can read, write and run migrations. On a database owned by a
+//     regular role it acts as that owner (member of it, and its sessions
+//     there start as it), so what it creates belongs to the owner. On one
+//     owned by a superuser, membership would make it a superuser too, so it
+//     becomes the database's owner instead (see takeOwnership).
 //   - read-only: SELECT on today's tables and on the ones the owner creates
 //     later.
 //
@@ -204,6 +205,7 @@ func (d *DB) CreateUser(ctx context.Context, name string, databases []string, re
 		return "", fmt.Errorf("ya existe un usuario llamado %q", name)
 	}
 	owners := map[string]string{}
+	superOwned := map[string]bool{}
 	for _, db := range databases {
 		var owner string
 		var super bool
@@ -214,10 +216,7 @@ func (d *DB) CreateUser(ctx context.Context, name string, databases []string, re
 		} else if err != nil {
 			return "", err
 		}
-		if super && !readOnly {
-			return "", fmt.Errorf("%s es del superusuario (%s): un usuario con escritura ahí sería superusuario de todo el servidor. Dale solo lectura, o pasa la base a un dueño propio", db, owner)
-		}
-		owners[db] = owner
+		owners[db], superOwned[db] = owner, super
 	}
 
 	password := newPassword()
@@ -226,17 +225,23 @@ func (d *DB) CreateUser(ctx context.Context, name string, databases []string, re
 	}
 	for i, db := range databases {
 		var err error
-		if readOnly {
+		switch {
+		case readOnly:
 			err = d.grantRead(ctx, db, owners[db], name)
-		} else {
+		case superOwned[db]:
+			err = d.takeOwnership(ctx, db, owners[db], name)
+		default:
 			err = d.grantOwner(ctx, db, owners[db], name)
 		}
 		if err != nil {
 			// Undo the databases that went through, then the role (DROP ROLE
-			// also removes its memberships and per-database settings).
+			// also removes its memberships and per-database settings). What
+			// it took over goes back to the superuser first: DROP OWNED
+			// would drop those tables.
 			for _, done := range databases[:i] {
 				if err := d.inDatabase(ctx, done, func(tx pgx.Tx) error {
-					_, err := tx.Exec(ctx, fmt.Sprintf(`DROP OWNED BY %s`, ident(name)))
+					_, err := tx.Exec(ctx, fmt.Sprintf(`REASSIGN OWNED BY %s TO %s; DROP OWNED BY %s`,
+						ident(name), ident(owners[done]), ident(name)))
 					return err
 				}); err != nil {
 					log.Printf("undo grants of %q on %q: %v", name, done, err)
@@ -265,6 +270,70 @@ func (d *DB) grantOwner(ctx context.Context, db, owner, user string) error {
 		}
 	}
 	return nil
+}
+
+// takeOwnership hands a superuser's database to user: the database and its
+// schemas, tables, views, sequences, functions and types, one by one
+// (REASSIGN OWNED would also take every other database the superuser owns).
+// Extension objects stay put. The superuser keeps full access, so an app
+// still connecting as it keeps working, and what it creates later is granted
+// to user. One transaction: it all moves or nothing does.
+func (d *DB) takeOwnership(ctx context.Context, db, from, to string) error {
+	return d.inDatabase(ctx, db, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			WITH r AS (SELECT oid FROM pg_roles WHERE rolname = $1::text),
+			ext AS (SELECT classid, objid FROM pg_depend WHERE deptype = 'e'),
+			app AS (SELECT oid FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema')
+			SELECT format('ALTER SCHEMA %I OWNER TO %I', n.nspname, $2::text) FROM pg_namespace n
+			  WHERE n.nspowner = (SELECT oid FROM r) AND n.oid IN (SELECT oid FROM app)
+			    AND (n.tableoid, n.oid) NOT IN (SELECT classid, objid FROM ext)
+			UNION ALL
+			SELECT format('ALTER %s %s OWNER TO %I',
+			         CASE c.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW'
+			           WHEN 'f' THEN 'FOREIGN TABLE' WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
+			         c.oid::regclass, $2)
+			  FROM pg_class c
+			  WHERE c.relowner = (SELECT oid FROM r) AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+			    AND c.relnamespace IN (SELECT oid FROM app)
+			    -- serial/identity sequences follow their table (partitions don't)
+			    AND NOT EXISTS (SELECT 1 FROM pg_depend x WHERE x.classid = 'pg_class'::regclass
+			                    AND x.objid = c.oid
+			                    AND (x.deptype = 'e' OR (c.relkind = 'S' AND x.deptype IN ('a', 'i'))))
+			UNION ALL
+			SELECT format('ALTER ROUTINE %s OWNER TO %I', p.oid::regprocedure, $2) FROM pg_proc p
+			  WHERE p.proowner = (SELECT oid FROM r) AND p.pronamespace IN (SELECT oid FROM app)
+			    AND (p.tableoid, p.oid) NOT IN (SELECT classid, objid FROM ext)
+			UNION ALL
+			SELECT format('ALTER %s %s OWNER TO %I', CASE t.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END,
+			         t.oid::regtype, $2)
+			  FROM pg_type t
+			  WHERE t.typowner = (SELECT oid FROM r) AND t.typnamespace IN (SELECT oid FROM app)
+			    AND (t.typtype IN ('e', 'd', 'r')
+			         OR (t.typtype = 'c' AND (SELECT relkind FROM pg_class WHERE oid = t.typrelid) = 'c'))
+			    AND (t.tableoid, t.oid) NOT IN (SELECT classid, objid FROM ext)`, from, to)
+		if err != nil {
+			return err
+		}
+		stmts, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		f, t := ident(from), ident(to)
+		stmts = append([]string{fmt.Sprintf(`ALTER DATABASE %s OWNER TO %s`, ident(db), t)}, stmts...)
+		stmts = append(stmts,
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT USAGE, CREATE ON SCHEMAS TO %s`, f, t),
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT ALL ON TABLES TO %s`, f, t),
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT ALL ON SEQUENCES TO %s`, f, t),
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT ALL ON FUNCTIONS TO %s`, f, t),
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT ALL ON TYPES TO %s`, f, t),
+		)
+		for _, q := range stmts {
+			if _, err := tx.Exec(ctx, q); err != nil {
+				return fmt.Errorf("%s: %w", q, err)
+			}
+		}
+		return nil
+	})
 }
 
 // grantRead runs inside the database: table privileges live there.
