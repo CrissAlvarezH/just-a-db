@@ -143,14 +143,6 @@ Resources:
                 Resource:
                   - !GetAtt BackupRunsLogGroup.Arn
 
-  # Nightly runs until 2026-10-13 (now in BackupRunsLogGroup). Not written
-  # anymore: remove it once its 14 days have passed.
-  BackupsLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: just-a-db/backups-logs
-      RetentionInDays: 14
-
   DatabaseLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

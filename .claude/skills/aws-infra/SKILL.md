@@ -40,6 +40,12 @@ group and IAM policy changes apply live, without restarts. Replacing the
 instance (AL2 is EOL) is a planned migration: see docs/UPGRADE.md, "Later:
 replacing the instance".
 
+## Instance metadata
+
+Hop limit 2 (`modify-instance-metadata-options`, set 2026-10-13, not in the
+template): with 1, containers wait for the IMDSv2 token to time out before
+getting the role's credentials (~2 s per AWS call).
+
 ## Disk (EBS) resize
 
 Root volume `vol-06b408557d762d046` (`/dev/xvda`, XFS). Done once already

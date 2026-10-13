@@ -39,8 +39,7 @@ description: How just-a-db's backups work and how to run, check, find logs for, 
   stream per run, linked from the panel (Backups → Últimas corridas).
 - `aws logs describe-log-streams --log-group-name just-a-db/backup-runs --order-by LogStreamName --descending --max-items 5`.
 - The backups container itself uses Docker's `local` driver: `docker logs`
-  on the server only. `just-a-db/backups-logs` has the runs before
-  2026-10-13 (no longer written).
+  on the server only.
 
 ## Restoring
 
