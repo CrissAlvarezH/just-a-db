@@ -82,10 +82,13 @@
 </section>
 
 <section class="card">
-  <h2>Usuarios</h2>
+  <div class="card-head">
+    <h2>Usuarios</h2>
+    <a class="button" href="/users/new">+ Nuevo usuario</a>
+  </div>
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Usuario</th><th>Dueño de</th><th></th></tr></thead>
+    <thead><tr><th>Usuario</th><th>Dueño de</th><th>Acceso a</th><th></th></tr></thead>
     <tbody>
     {{range .Roles}}
       <tr>
@@ -94,13 +97,15 @@
           {{if not .CanLogin}}<span class="tag">sin login</span>{{end}}
         </td>
         <td>{{join .Owns ", "}}</td>
+        <td>{{join .Access ", "}}</td>
         <td class="actions">
           {{if not .Superuser}}
           <form method="post" action="/roles/{{.Name}}/password"
                 data-confirm="La actual deja de funcionar y las apps que la usan tendrán que actualizarse."
                 data-confirm-title="¿Nueva contraseña para {{.Name}}?" data-confirm-ok="Generar">
             <input type="hidden" name="csrf" value="{{$csrf}}">
-            {{if .Owns}}<input type="hidden" name="database" value="{{index .Owns 0}}">{{end}}
+            {{if .Owns}}<input type="hidden" name="database" value="{{index .Owns 0}}">
+            {{else if .Access}}<input type="hidden" name="database" value="{{index .Access 0}}">{{end}}
             <button class="link">Nueva contraseña</button>
           </form>
           {{end}}

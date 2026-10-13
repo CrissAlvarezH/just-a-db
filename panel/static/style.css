@@ -171,6 +171,8 @@ a.danger { color: var(--danger); }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .stack label { display: flex; flex-direction: column; gap: 4px; }
 .stack label.check { flex-direction: row; align-items: center; gap: 8px; }
+fieldset.stack { border: 0; padding: 0; margin: 0; gap: 8px; }
+fieldset.stack legend { padding: 0; margin-bottom: 8px; }
 .row { display: flex; gap: 8px; max-width: 480px; }
 
 .tag {

@@ -103,7 +103,7 @@ func NewApp(cfg Config, db *DB, auth *Auth, backups *Backups, system *System) *A
 		"stale": func(t time.Time) bool { return time.Since(t) > 26*time.Hour },
 	}
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"login", "verify", "databases", "new", "created", "delete", "backups", "folder"} {
+	for _, name := range []string{"login", "verify", "databases", "new", "created", "delete", "backups", "folder", "user"} {
 		pages[name] = template.Must(template.New("").Funcs(funcs).ParseFS(assets,
 			"templates/layout.html", "templates/partials.html", "templates/"+name+".html"))
 	}
@@ -139,6 +139,8 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /databases/{name}/restrict", a.authed(a.restrictDatabase))
 	mux.HandleFunc("GET /databases/{name}/delete", a.authed(a.deletePage))
 	mux.HandleFunc("POST /databases/{name}/delete", a.authed(a.deleteDatabase))
+	mux.HandleFunc("GET /users/new", a.authed(a.newUserPage))
+	mux.HandleFunc("POST /users", a.authed(a.createUser))
 	mux.HandleFunc("POST /roles/{name}/password", a.authed(a.resetPassword))
 
 	mux.HandleFunc("GET /backups", a.authed(a.backupsPage))
@@ -410,6 +412,64 @@ func (a *App) createDatabase(w http.ResponseWriter, r *http.Request) {
 	creds := a.credentialsFor(title, data.Name, password, data.Name)
 	data.Creds = &creds
 	a.renderNew(w, r, http.StatusOK, data, "")
+}
+
+type newUserData struct {
+	Name      string
+	ReadOnly  bool
+	Selected  map[string]bool
+	Databases []Database
+	Creds     *credentials
+	// The databases it got, when more than one (the credentials use the first).
+	Granted []string
+}
+
+func (a *App) renderNewUser(w http.ResponseWriter, r *http.Request, status int, data newUserData, errMsg string) {
+	if data.Creds == nil {
+		dbs, err := a.db.Databases(r.Context())
+		if err != nil && errMsg == "" {
+			errMsg = "No se pudo consultar Postgres: " + err.Error()
+		}
+		data.Databases = dbs
+	}
+	title := "Nuevo usuario"
+	if data.Creds != nil {
+		title = "Usuario creado"
+	}
+	a.render(w, r, "user", status, Page{Title: title, Nav: "databases", Error: errMsg, Data: data})
+}
+
+func (a *App) newUserPage(w http.ResponseWriter, r *http.Request) {
+	a.renderNewUser(w, r, http.StatusOK, newUserData{}, "")
+}
+
+func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
+	data := newUserData{
+		Name:     strings.TrimSpace(r.PostFormValue("name")),
+		ReadOnly: r.PostFormValue("access") == "read",
+		Selected: map[string]bool{},
+	}
+	databases := r.PostForm["databases"]
+	sort.Strings(databases)
+	for _, db := range databases {
+		data.Selected[db] = true
+	}
+	password, err := a.db.CreateUser(r.Context(), data.Name, databases, data.ReadOnly)
+	if err != nil {
+		a.renderNewUser(w, r, http.StatusBadRequest, data, err.Error())
+		return
+	}
+	access := "lectura y escritura"
+	if data.ReadOnly {
+		access = "solo lectura"
+	}
+	log.Printf("user %q created by %s with %s on %s", data.Name, a.email(r), access, strings.Join(databases, ", "))
+	creds := a.credentialsFor("Usuario "+data.Name+" creado ("+access+")", data.Name, password, databases[0])
+	data.Creds = &creds
+	if len(databases) > 1 {
+		data.Granted = databases
+	}
+	a.renderNewUser(w, r, http.StatusOK, data, "")
 }
 
 func (a *App) resetPassword(w http.ResponseWriter, r *http.Request) {

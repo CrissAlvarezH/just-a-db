@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"time"
 
@@ -16,7 +17,12 @@ var validName = regexp.MustCompile(`^[a-z][a-z0-9_]{1,40}$`)
 
 var reservedNames = map[string]bool{"postgres": true, "template0": true, "template1": true, "public": true}
 
-type DB struct{ pool *pgxpool.Pool }
+type DB struct {
+	pool *pgxpool.Pool
+	// conn is the pool's connection config, to open one-off connections to
+	// other databases (privileges on tables are granted from inside each one).
+	conn *pgx.ConnConfig
+}
 
 func NewDB(ctx context.Context, url string) (*DB, error) {
 	cfg, err := pgxpool.ParseConfig(url)
@@ -36,7 +42,7 @@ func NewDB(ctx context.Context, url string) (*DB, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &DB{pool: pool}, nil
+	return &DB{pool: pool, conn: cfg.ConnConfig}, nil
 }
 
 func (d *DB) Close() { d.pool.Close() }
@@ -62,6 +68,8 @@ type Role struct {
 	Superuser bool
 	CanLogin  bool
 	Owns      []string
+	// Databases it was granted access to without owning them.
+	Access []string
 }
 
 func (d *DB) ServerInfo(ctx context.Context) (ServerInfo, error) {
@@ -94,18 +102,20 @@ func (d *DB) Databases(ctx context.Context) ([]Database, error) {
 func (d *DB) Roles(ctx context.Context) ([]Role, error) {
 	rows, err := d.pool.Query(ctx, `
 		SELECT r.rolname, r.rolsuper, r.rolcanlogin,
-		       coalesce(array_agg(d.datname ORDER BY d.datname) FILTER (WHERE d.datname IS NOT NULL), '{}')
+		       coalesce((SELECT array_agg(d.datname ORDER BY d.datname) FROM pg_database d
+		                 WHERE d.datdba = r.oid AND NOT d.datistemplate AND d.datname <> 'postgres'), '{}'),
+		       coalesce((SELECT array_agg(DISTINCT d.datname) FROM pg_database d, aclexplode(d.datacl) a
+		                 WHERE a.grantee = r.oid AND a.privilege_type = 'CONNECT' AND d.datdba <> r.oid
+		                   AND NOT d.datistemplate), '{}')
 		FROM pg_roles r
-		LEFT JOIN pg_database d ON d.datdba = r.oid AND NOT d.datistemplate AND d.datname <> 'postgres'
 		WHERE r.rolname !~ '^pg_'
-		GROUP BY r.rolname, r.rolsuper, r.rolcanlogin
 		ORDER BY r.rolsuper DESC, r.rolname`)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Role, error) {
 		var role Role
-		err := r.Scan(&role.Name, &role.Superuser, &role.CanLogin, &role.Owns)
+		err := r.Scan(&role.Name, &role.Superuser, &role.CanLogin, &role.Owns, &role.Access)
 		return role, err
 	})
 }
@@ -165,6 +175,112 @@ func (d *DB) CreateDatabase(ctx context.Context, name string) (string, error) {
 		}
 	}
 	return password, nil
+}
+
+// CreateUser creates a login role with access to existing databases it
+// doesn't own: read-write (SELECT/INSERT/UPDATE/DELETE, sequences) or
+// read-only, on today's tables and on the ones each database's owner creates
+// later. It can't create tables or change the schema. Returns the password.
+func (d *DB) CreateUser(ctx context.Context, name string, databases []string, readOnly bool) (string, error) {
+	if !validName.MatchString(name) || reservedNames[name] {
+		return "", fmt.Errorf("nombre inválido: usa minúsculas, números y _, empezando por letra (2 a 41 caracteres)")
+	}
+	if len(databases) == 0 {
+		return "", fmt.Errorf("elige al menos una base de datos")
+	}
+	if exists, _, err := d.role(ctx, name); err != nil {
+		return "", err
+	} else if exists {
+		return "", fmt.Errorf("ya existe un usuario llamado %q", name)
+	}
+	owners := map[string]string{}
+	for _, db := range databases {
+		var owner string
+		err := d.pool.QueryRow(ctx, `SELECT pg_get_userbyid(datdba) FROM pg_database
+			WHERE datname = $1 AND NOT datistemplate AND datname <> 'postgres'`, db).Scan(&owner)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("la base de datos %q no existe", db)
+		} else if err != nil {
+			return "", err
+		}
+		owners[db] = owner
+	}
+
+	password := newPassword()
+	if _, err := d.pool.Exec(ctx, fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD '%s'`, ident(name), password)); err != nil {
+		return "", err
+	}
+	for i, db := range databases {
+		if err := d.grantAccess(ctx, db, owners[db], name, readOnly); err != nil {
+			// Each database's grants are one transaction: undo the ones that
+			// went through, then the role.
+			for _, done := range databases[:i] {
+				if err := d.inDatabase(ctx, done, func(tx pgx.Tx) error {
+					_, err := tx.Exec(ctx, fmt.Sprintf(`DROP OWNED BY %s`, ident(name)))
+					return err
+				}); err != nil {
+					log.Printf("undo grants of %q on %q: %v", name, done, err)
+				}
+			}
+			if _, err := d.pool.Exec(ctx, fmt.Sprintf(`DROP ROLE IF EXISTS %s`, ident(name))); err != nil {
+				log.Printf("drop role %q after failed grants: %v", name, err)
+			}
+			return "", fmt.Errorf("no se pudo dar acceso a %s: %w", db, err)
+		}
+	}
+	return password, nil
+}
+
+// grantAccess runs inside the database: table privileges live there.
+func (d *DB) grantAccess(ctx context.Context, db, owner, user string, readOnly bool) error {
+	dbPrivs, tablePrivs, seqPrivs := "CONNECT, TEMPORARY", "SELECT, INSERT, UPDATE, DELETE", "USAGE, SELECT, UPDATE"
+	if readOnly {
+		dbPrivs, tablePrivs, seqPrivs = "CONNECT", "SELECT", "SELECT"
+	}
+	return d.inDatabase(ctx, db, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT nspname FROM pg_namespace
+			WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' ORDER BY nspname`)
+		if err != nil {
+			return err
+		}
+		schemas, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return err
+		}
+		u, o := ident(user), ident(owner)
+		sql := []string{
+			fmt.Sprintf(`GRANT %s ON DATABASE %s TO %s`, dbPrivs, ident(db), u),
+			// Whatever the owner creates later, in any schema.
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT USAGE ON SCHEMAS TO %s`, o, u),
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT %s ON TABLES TO %s`, o, tablePrivs, u),
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT %s ON SEQUENCES TO %s`, o, seqPrivs, u),
+		}
+		for _, s := range schemas {
+			sql = append(sql,
+				fmt.Sprintf(`GRANT USAGE ON SCHEMA %s TO %s`, ident(s), u),
+				fmt.Sprintf(`GRANT %s ON ALL TABLES IN SCHEMA %s TO %s`, tablePrivs, ident(s), u),
+				fmt.Sprintf(`GRANT %s ON ALL SEQUENCES IN SCHEMA %s TO %s`, seqPrivs, ident(s), u),
+			)
+		}
+		for _, q := range sql {
+			if _, err := tx.Exec(ctx, q); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// inDatabase runs fn in a transaction on a one-off connection to db.
+func (d *DB) inDatabase(ctx context.Context, db string, fn func(pgx.Tx) error) error {
+	cfg := d.conn.Copy()
+	cfg.Database = db
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(context.Background())
+	return pgx.BeginFunc(ctx, conn, fn)
 }
 
 // ResetPassword sets a new password for a non-superuser login role. The

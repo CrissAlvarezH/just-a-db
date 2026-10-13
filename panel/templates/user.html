@@ -1,0 +1,42 @@
+{{define "content"}}
+{{$csrf := .CSRF}}
+{{with .Data}}
+<section class="card narrow-wide">
+  <p><a href="/">← Bases de datos</a></p>
+  {{if .Creds}}
+    <h1>{{.Creds.Title}}</h1>
+    {{if .Granted}}<p class="muted">Tiene acceso a {{join .Granted ", "}}. Para conectarse a otra de ellas, cambia DB_NAME.</p>{{end}}
+    {{template "creds" .Creds}}
+    <p class="links"><a href="/users/new">Crear otro</a> <a href="/">Volver a las bases de datos</a></p>
+  {{else}}
+    <h1>Nuevo usuario</h1>
+    <p class="muted">Un usuario más para bases que ya existen, por ejemplo para otra app o para consultar los datos. Al crearlo te mostramos su contraseña.</p>
+    <form method="post" action="/users" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label>Nombre
+        <input name="name" value="{{.Name}}" required autofocus pattern="[a-z][a-z0-9_]{1,40}" placeholder="mi_app_lectura"
+               title="Minúsculas, números y _, empezando por letra" autocomplete="off">
+        <span class="muted hint">Minúsculas, números y _, empezando por letra.</span>
+      </label>
+      <fieldset class="stack">
+        <legend>Bases de datos a las que tendrá acceso</legend>
+        {{$sel := .Selected}}
+        {{range .Databases}}
+          <label class="check"><input type="checkbox" name="databases" value="{{.Name}}" {{if index $sel .Name}}checked{{end}}> {{.Name}} <span class="muted hint">dueño {{.Owner}}</span></label>
+        {{else}}
+          <p class="muted">No hay bases de datos.</p>
+        {{end}}
+      </fieldset>
+      <label>Permisos
+        <select name="access">
+          <option value="write">Lectura y escritura</option>
+          <option value="read" {{if .ReadOnly}}selected{{end}}>Solo lectura</option>
+        </select>
+        <span class="muted hint">Sobre las tablas de hoy y las que se creen después. No puede crear tablas ni cambiar el esquema: eso queda para el dueño de cada base.</span>
+      </label>
+      <button data-busy="Creando…">Crear usuario</button>
+    </form>
+  {{end}}
+</section>
+{{end}}
+{{end}}
