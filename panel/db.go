@@ -104,9 +104,12 @@ func (d *DB) Roles(ctx context.Context) ([]Role, error) {
 		SELECT r.rolname, r.rolsuper, r.rolcanlogin,
 		       coalesce((SELECT array_agg(d.datname ORDER BY d.datname) FROM pg_database d
 		                 WHERE d.datdba = r.oid AND NOT d.datistemplate AND d.datname <> 'postgres'), '{}'),
-		       coalesce((SELECT array_agg(DISTINCT d.datname) FROM pg_database d, aclexplode(d.datacl) a
-		                 WHERE a.grantee = r.oid AND a.privilege_type = 'CONNECT' AND d.datdba <> r.oid
-		                   AND NOT d.datistemplate), '{}')
+		       coalesce((SELECT array_agg(DISTINCT d.datname) FROM pg_database d
+		                 WHERE d.datdba <> r.oid AND NOT d.datistemplate AND d.datname <> 'postgres'
+		                   AND (EXISTS (SELECT 1 FROM aclexplode(d.datacl) a
+		                                WHERE a.grantee = r.oid AND a.privilege_type = 'CONNECT')
+		                        OR EXISTS (SELECT 1 FROM pg_auth_members m
+		                                   WHERE m.member = r.oid AND m.roleid = d.datdba))), '{}')
 		FROM pg_roles r
 		WHERE r.rolname !~ '^pg_'
 		ORDER BY r.rolsuper DESC, r.rolname`)
@@ -178,9 +181,16 @@ func (d *DB) CreateDatabase(ctx context.Context, name string) (string, error) {
 }
 
 // CreateUser creates a login role with access to existing databases it
-// doesn't own: read-write (SELECT/INSERT/UPDATE/DELETE, sequences) or
-// read-only, on today's tables and on the ones each database's owner creates
-// later. It can't create tables or change the schema. Returns the password.
+// doesn't own:
+//
+//   - write: it acts as each database's owner (member of the owner role, and
+//     its sessions there start as that role), so it can run migrations and
+//     what it creates belongs to the owner, like the app's own user. Refused
+//     when the owner is a superuser: membership would make it one too.
+//   - read-only: SELECT on today's tables and on the ones the owner creates
+//     later.
+//
+// Returns the password.
 func (d *DB) CreateUser(ctx context.Context, name string, databases []string, readOnly bool) (string, error) {
 	if !validName.MatchString(name) || reservedNames[name] {
 		return "", fmt.Errorf("nombre inválido: usa minúsculas, números y _, empezando por letra (2 a 41 caracteres)")
@@ -196,12 +206,16 @@ func (d *DB) CreateUser(ctx context.Context, name string, databases []string, re
 	owners := map[string]string{}
 	for _, db := range databases {
 		var owner string
-		err := d.pool.QueryRow(ctx, `SELECT pg_get_userbyid(datdba) FROM pg_database
-			WHERE datname = $1 AND NOT datistemplate AND datname <> 'postgres'`, db).Scan(&owner)
+		var super bool
+		err := d.pool.QueryRow(ctx, `SELECT r.rolname, r.rolsuper FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
+			WHERE d.datname = $1 AND NOT d.datistemplate AND d.datname <> 'postgres'`, db).Scan(&owner, &super)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", fmt.Errorf("la base de datos %q no existe", db)
 		} else if err != nil {
 			return "", err
+		}
+		if super && !readOnly {
+			return "", fmt.Errorf("%s es del superusuario (%s): un usuario con escritura ahí sería superusuario de todo el servidor. Dale solo lectura, o pasa la base a un dueño propio", db, owner)
 		}
 		owners[db] = owner
 	}
@@ -211,9 +225,15 @@ func (d *DB) CreateUser(ctx context.Context, name string, databases []string, re
 		return "", err
 	}
 	for i, db := range databases {
-		if err := d.grantAccess(ctx, db, owners[db], name, readOnly); err != nil {
-			// Each database's grants are one transaction: undo the ones that
-			// went through, then the role.
+		var err error
+		if readOnly {
+			err = d.grantRead(ctx, db, owners[db], name)
+		} else {
+			err = d.grantOwner(ctx, db, owners[db], name)
+		}
+		if err != nil {
+			// Undo the databases that went through, then the role (DROP ROLE
+			// also removes its memberships and per-database settings).
 			for _, done := range databases[:i] {
 				if err := d.inDatabase(ctx, done, func(tx pgx.Tx) error {
 					_, err := tx.Exec(ctx, fmt.Sprintf(`DROP OWNED BY %s`, ident(name)))
@@ -231,12 +251,24 @@ func (d *DB) CreateUser(ctx context.Context, name string, databases []string, re
 	return password, nil
 }
 
-// grantAccess runs inside the database: table privileges live there.
-func (d *DB) grantAccess(ctx context.Context, db, owner, user string, readOnly bool) error {
-	dbPrivs, tablePrivs, seqPrivs := "CONNECT, TEMPORARY", "SELECT, INSERT, UPDATE, DELETE", "USAGE, SELECT, UPDATE"
-	if readOnly {
-		dbPrivs, tablePrivs, seqPrivs = "CONNECT", "SELECT", "SELECT"
+// grantOwner makes user act as owner inside db. "SET role" on login (rather
+// than relying on inherited privileges) is what makes the tables a migration
+// creates belong to the owner, so the app's own user keeps full access.
+func (d *DB) grantOwner(ctx context.Context, db, owner, user string) error {
+	u, o := ident(user), ident(owner)
+	for _, q := range []string{
+		fmt.Sprintf(`GRANT %s TO %s WITH INHERIT TRUE, SET TRUE`, o, u),
+		fmt.Sprintf(`ALTER ROLE %s IN DATABASE %s SET role = %s`, u, ident(db), pgx.Identifier{owner}.Sanitize()),
+	} {
+		if _, err := d.pool.Exec(ctx, q); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// grantRead runs inside the database: table privileges live there.
+func (d *DB) grantRead(ctx context.Context, db, owner, user string) error {
 	return d.inDatabase(ctx, db, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `SELECT nspname FROM pg_namespace
 			WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' ORDER BY nspname`)
@@ -249,17 +281,17 @@ func (d *DB) grantAccess(ctx context.Context, db, owner, user string, readOnly b
 		}
 		u, o := ident(user), ident(owner)
 		sql := []string{
-			fmt.Sprintf(`GRANT %s ON DATABASE %s TO %s`, dbPrivs, ident(db), u),
+			fmt.Sprintf(`GRANT CONNECT ON DATABASE %s TO %s`, ident(db), u),
 			// Whatever the owner creates later, in any schema.
 			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT USAGE ON SCHEMAS TO %s`, o, u),
-			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT %s ON TABLES TO %s`, o, tablePrivs, u),
-			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT %s ON SEQUENCES TO %s`, o, seqPrivs, u),
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT SELECT ON TABLES TO %s`, o, u),
+			fmt.Sprintf(`ALTER DEFAULT PRIVILEGES FOR ROLE %s GRANT SELECT ON SEQUENCES TO %s`, o, u),
 		}
 		for _, s := range schemas {
 			sql = append(sql,
 				fmt.Sprintf(`GRANT USAGE ON SCHEMA %s TO %s`, ident(s), u),
-				fmt.Sprintf(`GRANT %s ON ALL TABLES IN SCHEMA %s TO %s`, tablePrivs, ident(s), u),
-				fmt.Sprintf(`GRANT %s ON ALL SEQUENCES IN SCHEMA %s TO %s`, seqPrivs, ident(s), u),
+				fmt.Sprintf(`GRANT SELECT ON ALL TABLES IN SCHEMA %s TO %s`, ident(s), u),
+				fmt.Sprintf(`GRANT SELECT ON ALL SEQUENCES IN SCHEMA %s TO %s`, ident(s), u),
 			)
 		}
 		for _, q := range sql {
@@ -316,13 +348,13 @@ func (d *DB) RestrictDatabase(ctx context.Context, name string) error {
 		return err
 	}
 	// CONNECT is only checked when a session starts, and pgbouncer keeps
-	// sessions open: close the ones other roles already have.
+	// sessions open: close the ones of roles that just lost it (users given
+	// access in the panel keep theirs).
 	_, err := d.pool.Exec(ctx, `
 		SELECT pg_terminate_backend(a.pid)
 		FROM pg_stat_activity a
-		JOIN pg_database d ON d.datname = a.datname
-		JOIN pg_roles r ON r.rolname = a.usename
-		WHERE a.datname = $1 AND a.usename <> pg_get_userbyid(d.datdba) AND NOT r.rolsuper`, name)
+		WHERE a.datname = $1 AND a.usename IS NOT NULL
+		  AND NOT has_database_privilege(a.usename, a.datname, 'CONNECT')`, name)
 	return err
 }
 

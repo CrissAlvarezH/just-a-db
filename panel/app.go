@@ -446,7 +446,7 @@ func (a *App) newUserPage(w http.ResponseWriter, r *http.Request) {
 func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
 	data := newUserData{
 		Name:     strings.TrimSpace(r.PostFormValue("name")),
-		ReadOnly: r.PostFormValue("access") == "read",
+		ReadOnly: r.PostFormValue("access") != "write",
 		Selected: map[string]bool{},
 	}
 	databases := r.PostForm["databases"]
@@ -459,7 +459,7 @@ func (a *App) createUser(w http.ResponseWriter, r *http.Request) {
 		a.renderNewUser(w, r, http.StatusBadRequest, data, err.Error())
 		return
 	}
-	access := "lectura y escritura"
+	access := "escritura"
 	if data.ReadOnly {
 		access = "solo lectura"
 	}

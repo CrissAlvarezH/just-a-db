@@ -10,7 +10,7 @@
     <p class="links"><a href="/users/new">Crear otro</a> <a href="/">Volver a las bases de datos</a></p>
   {{else}}
     <h1>Nuevo usuario</h1>
-    <p class="muted">Un usuario más para bases que ya existen, por ejemplo para otra app o para consultar los datos. Al crearlo te mostramos su contraseña.</p>
+    <p class="muted">Un usuario más para bases que ya existen. Al crearlo te mostramos su contraseña y las variables DB_* para la app.</p>
     <form method="post" action="/users" class="stack">
       <input type="hidden" name="csrf" value="{{$csrf}}">
       <label>Nombre
@@ -27,13 +27,13 @@
           <p class="muted">No hay bases de datos.</p>
         {{end}}
       </fieldset>
-      <label>Permisos
-        <select name="access">
-          <option value="write">Lectura y escritura</option>
-          <option value="read" {{if .ReadOnly}}selected{{end}}>Solo lectura</option>
-        </select>
-        <span class="muted hint">Sobre las tablas de hoy y las que se creen después. No puede crear tablas ni cambiar el esquema: eso queda para el dueño de cada base.</span>
-      </label>
+      <fieldset class="stack">
+        <legend>Permisos</legend>
+        <label class="check"><input type="radio" name="access" value="write" {{if not .ReadOnly}}checked{{end}}> Escritura</label>
+        <span class="muted hint">Para las variables de entorno de una app: lee, escribe y corre migraciones, como el dueño de la base (lo que cree queda a nombre del dueño). No disponible en bases del superusuario.</span>
+        <label class="check"><input type="radio" name="access" value="read" {{if .ReadOnly}}checked{{end}}> Solo lectura</label>
+        <span class="muted hint">Para consultar los datos: SELECT en las tablas de hoy y las que se creen después.</span>
+      </fieldset>
       <button data-busy="Creando…">Crear usuario</button>
     </form>
   {{end}}
