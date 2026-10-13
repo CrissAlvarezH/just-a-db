@@ -88,6 +88,14 @@ a { color: var(--accent); }
 }
 .stats span { font-size: 13px; }
 
+.meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+.meter { display: flex; flex-direction: column; gap: 6px; }
+.meter-head { display: flex; justify-content: space-between; }
+.bar { height: 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); overflow: hidden; }
+.bar span { display: block; height: 100%; width: 0; background: var(--ok-text); transition: width 0.3s; }
+.bar.mid span { background: #d99a00; }
+.bar.high span { background: var(--danger); }
+
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -96,6 +104,7 @@ td.actions { text-align: right; }
 td.actions > * { margin-left: 12px; }
 td.actions form { display: inline; }
 
+select,
 input:not([type="checkbox"]) {
   font: inherit;
   padding: 8px 10px;
@@ -117,7 +126,46 @@ button {
 }
 button:disabled { opacity: 0.6; cursor: default; }
 button.danger { background: var(--danger); }
+a.button {
+  display: inline-block;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.card-head h2 { margin: 0; }
+.narrow-wide { max-width: 640px; margin: 0 auto 20px; }
+.hint { font-size: 13px; }
+.links { display: flex; gap: 20px; flex-wrap: wrap; }
+
 button.link { background: none; color: var(--accent); padding: 0; }
+a.button.secondary { background: none; color: var(--text); border: 1px solid var(--border); }
+.refresh { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-bottom: 12px; font-size: 14px; }
+
+button.secondary { background: none; color: var(--text); border: 1px solid var(--border); }
+
+/* Native <dialog> modals (static/app.js). The padding lives on the inner
+   form, so a click on the dialog element itself is a click on the backdrop. */
+.modal {
+  width: min(440px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.25);
+}
+.modal::backdrop { background: rgb(0 0 0 / 0.45); }
+.modal > form { padding: 20px; }
+.modal p { margin: 0 0 16px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.modal[open] { animation: modal-in 0.15s ease-out; }
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
 a.danger { color: var(--danger); }
 
 .stack { display: flex; flex-direction: column; gap: 12px; }
@@ -149,8 +197,12 @@ a.danger { color: var(--danger); }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .break { word-break: break-all; }
 
-.folders { list-style: none; padding: 0; margin: 0; columns: 2; }
-.folders li { padding: 4px 0; }
+
+details summary { cursor: pointer; margin-bottom: 8px; }
+.run { border-top: 1px solid var(--border); padding: 10px 0; }
+.run summary { margin: 0; }
+.run[open] summary { margin-bottom: 8px; }
+.run .tag { margin: 0 6px 0 0; }
 
 .log {
   background: var(--bg);
@@ -164,7 +216,6 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 }
 
 @media (max-width: 600px) {
-  .folders { columns: 1; }
   .creds { grid-template-columns: 1fr; }
   .creds dt { margin-top: 8px; }
 }

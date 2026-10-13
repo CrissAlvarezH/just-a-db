@@ -1,21 +1,56 @@
 {{define "content"}}
 {{$csrf := .CSRF}}
 {{with .Data}}
-<section class="card narrow">
+<section class="card narrow-wide">
+  <p><a href="/">← Bases de datos</a></p>
   <h1>Borrar {{.Name}}</h1>
   <p>Se cierran sus conexiones y se borra la base con todos sus datos. No se puede deshacer.</p>
-  {{if .LastBackup}}
-    <p class="muted">Último backup: {{time .LastBackup.Modified}} ({{bytes .LastBackup.Size}}). Los backups en S3 no se borran.</p>
+
+  {{if .NoS3}}
+    <p class="warn-box">No hay S3 configurado para backups. Sin un backup reciente no se puede borrar.</p>
   {{else}}
-    <p class="warn-box">Esta base no tiene backups en S3.</p>
+    <h2>1. Backup reciente</h2>
+    <p class="muted">Para borrarla necesita un backup de hace {{.MaxAgeMin}} minutos o menos. Los backups en S3 no se borran con la base.</p>
+
+    {{if .LastBackup}}
+      <p>
+        Último backup: <strong>{{time .LastBackup.Modified}}</strong> ({{bytes .LastBackup.Size}})
+        {{if .BackupFresh}}<span class="tag ok">reciente</span>{{else}}<span class="tag warn">muy viejo</span>{{end}}
+      </p>
+    {{else}}
+      <p><span class="tag warn">sin backups</span></p>
+    {{end}}
+
+    {{if .RunningThis}}
+      <p><span class="tag">en curso</span> Haciendo backup de {{.Name}}…</p>
+      <pre class="log" data-autorefresh="2">{{.Run.Log}}</pre>
+    {{else if .Run.Running}}
+      <p class="warn-box">Hay otro backup corriendo{{if .Run.Database}} ({{.Run.Database}}){{else}} (todas las bases){{end}}. Espera a que termine.</p>
+      <span data-autorefresh="3"></span>
+    {{else if not .BackupFresh}}
+      <form method="post" action="/backups/run" class="row">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <input type="hidden" name="database" value="{{.Name}}">
+        <button data-busy="Iniciando…">Hacer backup de {{.Name}} ahora</button>
+      </form>
+    {{end}}
+    {{if and (not .Run.Running) (eq .Run.Database .Name) (not .Run.OK) (not .Run.Finished.IsZero)}}
+      <p class="error">El último backup de {{.Name}} falló:</p>
+      <pre class="log">{{.Run.Log}}</pre>
+    {{end}}
+
+    <h2>2. Confirmar</h2>
+    {{if .BackupFresh}}
+      <form method="post" action="/databases/{{.Name}}/delete" class="stack" data-match="{{.Name}}">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <label>Escribe <strong>{{.Name}}</strong> para confirmar <input name="confirm" required autocomplete="off" autofocus></label>
+        <label class="check"><input type="checkbox" name="drop_owner" checked> Borrar también su usuario dueño</label>
+        <button class="danger" data-busy="Borrando…">Borrar definitivamente</button>
+      </form>
+    {{else}}
+      <p class="muted">Disponible cuando haya un backup reciente.</p>
+    {{end}}
   {{end}}
-  <form method="post" action="/databases/{{.Name}}/delete" class="stack">
-    <input type="hidden" name="csrf" value="{{$csrf}}">
-    <label>Escribe <strong>{{.Name}}</strong> para confirmar <input name="confirm" required autocomplete="off"></label>
-    <label class="check"><input type="checkbox" name="drop_owner" checked> Borrar también su usuario dueño</label>
-    <button class="danger">Borrar definitivamente</button>
-  </form>
-  <p><a href="/">Cancelar</a></p>
 </section>
 {{end}}
 {{end}}

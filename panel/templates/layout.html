@@ -28,5 +28,17 @@
     {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
     {{template "content" .}}
   </main>
+
+  <!-- Shared by every form with data-confirm (see static/app.js). -->
+  <dialog id="confirm-dialog" class="modal">
+    <form method="dialog">
+      <h2 data-slot="title"></h2>
+      <p data-slot="message"></p>
+      <div class="modal-actions">
+        <button value="cancel" class="secondary">Cancelar</button>
+        <button value="ok" data-slot="ok" autofocus></button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>{{end}}

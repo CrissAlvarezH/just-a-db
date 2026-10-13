@@ -1,0 +1,43 @@
+{{define "content"}}
+{{$csrf := .CSRF}}
+{{with .Data}}
+<section class="card narrow-wide">
+  <p><a href="/">← Bases de datos</a></p>
+  {{if .Creds}}
+    <h1>{{.Creds.Title}}</h1>
+    {{template "creds" .Creds}}
+    {{if .RestoreLog}}
+      <details><summary class="muted">Salida de la restauración</summary><pre class="log">{{.RestoreLog}}</pre></details>
+    {{end}}
+    <p class="links"><a href="/databases/new">Crear otra</a> <a href="/">Volver a las bases de datos</a></p>
+  {{else}}
+    <h1>Nueva base de datos</h1>
+    <p class="muted">Se crea con un usuario del mismo nombre, dueño de la base y sin acceso a las demás. Al crearla te mostramos su contraseña y la URL de conexión.</p>
+    <form method="post" action="/databases" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label>Nombre
+        <input name="name" value="{{.Name}}" required autofocus pattern="[a-z][a-z0-9_]{1,40}" placeholder="mi_app"
+               title="Minúsculas, números y _, empezando por letra" autocomplete="off">
+        <span class="muted hint">Minúsculas, números y _, empezando por letra. Será también el nombre del usuario.</span>
+      </label>
+      {{$selected := .Backup}}
+      <label>Contenido
+        <select name="backup">
+          <option value="">Vacía</option>
+          {{range .Choices}}
+            <optgroup label="Backups de {{.Folder}}">
+              {{range .Objects}}
+                <option value="{{.Key}}" {{if eq .Key $selected}}selected{{end}}>{{time .Modified}} · {{bytes .Size}} · {{.Name}}</option>
+              {{end}}
+            </optgroup>
+          {{end}}
+        </select>
+        <span class="muted hint">Con un backup, la base se crea con sus datos; las tablas quedan a nombre del usuario nuevo. Si algo falla no se crea nada.</span>
+      </label>
+      <button data-busy="Creando…">Crear base de datos</button>
+    </form>
+    {{if .RestoreLog}}<pre class="log">{{.RestoreLog}}</pre>{{end}}
+  {{end}}
+</section>
+{{end}}
+{{end}}

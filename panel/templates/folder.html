@@ -1,4 +1,5 @@
 {{define "content"}}
+{{template "refresh" .}}
 {{with .Data}}
 <section class="card">
   <p><a href="/backups">← Backups</a></p>
@@ -12,7 +13,10 @@
         <td><code>{{.Name}}</code></td>
         <td>{{time .Modified}}</td>
         <td>{{bytes .Size}}</td>
-        <td class="actions"><a href="/backups/download?key={{.Key}}">Descargar</a></td>
+        <td class="actions">
+          {{if restorable .Key}}<a href="/databases/new?backup={{.Key}}">Crear base desde este</a>{{end}}
+          <a href="/backups/download?key={{.Key}}">Descargar</a>
+        </td>
       </tr>
     {{else}}
       <tr><td colspan="4" class="muted">No hay backups.</td></tr>

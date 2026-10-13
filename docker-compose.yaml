@@ -87,6 +87,10 @@ services:
       - .panel.env
     environment:
       AWS_REGION: ${AWS_REGION}
+      # Disk usage shown in the panel: the disk where Postgres' data lives.
+      DISK_PATH: /pgdata
+    volumes:
+      - dbdata:/pgdata:ro
     depends_on:
       database:
         condition: service_healthy

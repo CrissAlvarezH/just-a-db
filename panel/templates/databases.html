@@ -1,14 +1,53 @@
 {{define "content"}}
 {{$csrf := .CSRF}}
+{{template "refresh" .}}
 {{with .Data}}
+{{with .System}}{{if .OK}}
+<section class="card">
+  <h2>Servidor</h2>
+  <div class="meters">
+    {{$p := pct .MemUsed .MemTotal}}
+    <div class="meter">
+      <div class="meter-head"><span>Memoria RAM</span><strong>{{$p}}%</strong></div>
+      <div class="bar {{level $p}}"><span data-w="{{$p}}"></span></div>
+      <span class="muted hint">{{ubytes .MemUsed}} de {{ubytes .MemTotal}}{{if .SwapTotal}} · swap {{ubytes .SwapUsed}} de {{ubytes .SwapTotal}}{{end}}</span>
+    </div>
+    {{if .DiskTotal}}{{$p := pct .DiskUsed .DiskTotal}}
+    <div class="meter">
+      <div class="meter-head"><span>Disco</span><strong>{{$p}}%</strong></div>
+      <div class="bar {{level $p}}"><span data-w="{{$p}}"></span></div>
+      <span class="muted hint">{{ubytes .DiskUsed}} de {{ubytes .DiskTotal}} · libre {{ubytes (sub .DiskTotal .DiskUsed)}}</span>
+    </div>
+    {{end}}
+    {{if .HasCPUUsage}}{{$p := int .CPUPercent}}
+    <div class="meter">
+      <div class="meter-head"><span>CPU</span><strong>{{$p}}%</strong></div>
+      <div class="bar {{level $p}}"><span data-w="{{$p}}"></span></div>
+      <span class="muted hint">{{.CPUs}} {{if eq .CPUs 1}}núcleo{{else}}núcleos{{end}} · últimos 5 s</span>
+    </div>
+    {{end}}
+    {{$p := loadpct .Load5 .CPUs}}
+    <div class="meter">
+      <div class="meter-head"><span>Carga</span><strong>{{f1 .Load1}}</strong></div>
+      <div class="bar {{level $p}}"><span data-w="{{$p}}"></span></div>
+      <span class="muted hint">1, 5 y 15 min: {{f1 .Load1}} · {{f1 .Load5}} · {{f1 .Load15}} · encendido hace {{duration .Uptime}}</span>
+    </div>
+  </div>
+</section>
+{{end}}{{end}}
+
 <section class="stats">
   <div><span class="muted">Postgres</span><strong>{{.Server.Version}}</strong></div>
   <div><span class="muted">Conexiones</span><strong>{{.Server.Connections}} / {{.Server.MaxConnections}}</strong></div>
-  <div><span class="muted">Encendido desde</span><strong>{{time .Server.StartedAt}}</strong></div>
+  <div><span class="muted">Datos</span><strong>{{bytes .DataSize}}</strong></div>
+  <div><span class="muted">Postgres encendido desde</span><strong>{{time .Server.StartedAt}}</strong></div>
 </section>
 
 <section class="card">
-  <h2>Bases de datos</h2>
+  <div class="card-head">
+    <h2>Bases de datos</h2>
+    <a class="button" href="/databases/new">+ Nueva base de datos</a>
+  </div>
   <div class="table-wrap">
   <table>
     <thead><tr><th>Nombre</th><th>Dueño</th><th>Tamaño</th><th>Conexiones</th><th></th></tr></thead>
@@ -24,7 +63,9 @@
         <td class="actions">
           {{if $.Backups}}<a href="/backups/f/{{.Name}}">Backups</a>{{end}}
           {{if .PublicConnect}}
-          <form method="post" action="/databases/{{.Name}}/restrict" data-confirm="¿Cerrar {{.Name}} para que solo su dueño ({{.Owner}}) y el superusuario puedan conectarse?">
+          <form method="post" action="/databases/{{.Name}}/restrict"
+                data-confirm="Solo su dueño ({{.Owner}}) y el superusuario podrán conectarse. Las sesiones abiertas de otros usuarios se cierran."
+                data-confirm-title="¿Restringir {{.Name}}?" data-confirm-ok="Restringir">
             <input type="hidden" name="csrf" value="{{$csrf}}">
             <button class="link">Restringir</button>
           </form>
@@ -38,16 +79,6 @@
     </tbody>
   </table>
   </div>
-</section>
-
-<section class="card">
-  <h2>Nueva base de datos</h2>
-  <p class="muted">Se crea con un usuario del mismo nombre, dueño de la base y sin acceso a las demás.</p>
-  <form method="post" action="/databases" class="row">
-    <input type="hidden" name="csrf" value="{{$csrf}}">
-    <input name="name" required pattern="[a-z][a-z0-9_]{1,40}" placeholder="mi_app" title="Minúsculas, números y _, empezando por letra" autocomplete="off">
-    <button>Crear</button>
-  </form>
 </section>
 
 <section class="card">
@@ -65,7 +96,9 @@
         <td>{{join .Owns ", "}}</td>
         <td class="actions">
           {{if not .Superuser}}
-          <form method="post" action="/roles/{{.Name}}/password" data-confirm="¿Generar una nueva contraseña para {{.Name}}? La actual deja de funcionar y las apps que la usan tendrán que actualizarse.">
+          <form method="post" action="/roles/{{.Name}}/password"
+                data-confirm="La actual deja de funcionar y las apps que la usan tendrán que actualizarse."
+                data-confirm-title="¿Nueva contraseña para {{.Name}}?" data-confirm-ok="Generar">
             <input type="hidden" name="csrf" value="{{$csrf}}">
             {{if .Owns}}<input type="hidden" name="database" value="{{index .Owns 0}}">{{end}}
             <button class="link">Nueva contraseña</button>
@@ -78,5 +111,6 @@
   </table>
   </div>
 </section>
+
 {{end}}
 {{end}}

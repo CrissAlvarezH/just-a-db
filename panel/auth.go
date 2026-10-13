@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,24 +51,27 @@ type ipCounter struct {
 	reset time.Time
 }
 
-// Auth keeps codes and sessions in memory: a restart logs everyone out, which
-// is fine for a single-admin panel and avoids storing anything on disk.
+// Auth keeps login codes in memory, and sessions in a signed cookie
+// (email|expiry|csrf + HMAC), so restarting or redeploying the panel doesn't
+// log anyone out. Removing an email from ALLOWED_EMAILS ends its sessions.
 type Auth struct {
-	cfg      Config
-	client   *http.Client
-	mu       sync.Mutex
-	sessions map[string]*session
-	codes    map[string]*pendingCode
-	ips      map[string]*ipCounter
+	cfg    Config
+	client *http.Client
+	mu     sync.Mutex
+	codes  map[string]*pendingCode
+	ips    map[string]*ipCounter
+	// Cookies logged out before they expire. In memory: after a restart a
+	// copied cookie would work again until it expires (12h at most).
+	revoked map[string]time.Time
 }
 
 func NewAuth(cfg Config) *Auth {
 	a := &Auth{
-		cfg:      cfg,
-		client:   &http.Client{Timeout: 15 * time.Second},
-		sessions: map[string]*session{},
-		codes:    map[string]*pendingCode{},
-		ips:      map[string]*ipCounter{},
+		cfg:     cfg,
+		client:  &http.Client{Timeout: 15 * time.Second},
+		codes:   map[string]*pendingCode{},
+		ips:     map[string]*ipCounter{},
+		revoked: map[string]time.Time{},
 	}
 	go a.sweep()
 	return a
@@ -75,9 +81,9 @@ func (a *Auth) sweep() {
 	for range time.Tick(time.Minute) {
 		now := time.Now()
 		a.mu.Lock()
-		for k, s := range a.sessions {
-			if now.After(s.expires) {
-				delete(a.sessions, k)
+		for k, exp := range a.revoked {
+			if now.After(exp) {
+				delete(a.revoked, k)
 			}
 		}
 		for k, c := range a.codes {
@@ -189,9 +195,19 @@ func (a *Auth) VerifyCode(email, code string) (string, bool) {
 		return "", false
 	}
 	delete(a.codes, email)
-	token := randomHex(32)
-	a.sessions[token] = &session{email: email, csrf: randomHex(16), expires: time.Now().Add(sessionTTL)}
-	return token, true
+	return a.sign(session{email: email, csrf: randomHex(16), expires: time.Now().Add(sessionTTL)}), true
+}
+
+func (a *Auth) mac(payload string) []byte {
+	m := hmac.New(sha256.New, a.cfg.SessionKey)
+	m.Write([]byte(payload))
+	return m.Sum(nil)
+}
+
+func (a *Auth) sign(s session) string {
+	payload := strings.Join([]string{s.email, strconv.FormatInt(s.expires.Unix(), 10), s.csrf}, "|")
+	enc := base64.RawURLEncoding
+	return enc.EncodeToString([]byte(payload)) + "." + enc.EncodeToString(a.mac(payload))
 }
 
 func (a *Auth) Session(r *http.Request) *session {
@@ -199,21 +215,43 @@ func (a *Auth) Session(r *http.Request) *session {
 	if err != nil {
 		return nil
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s := a.sessions[cookie.Value]
-	if s == nil || time.Now().After(s.expires) {
+	enc := base64.RawURLEncoding
+	payloadB64, sigB64, ok := strings.Cut(cookie.Value, ".")
+	if !ok {
 		return nil
 	}
-	return s
+	payload, err1 := enc.DecodeString(payloadB64)
+	sig, err2 := enc.DecodeString(sigB64)
+	if err1 != nil || err2 != nil || !hmac.Equal(sig, a.mac(string(payload))) {
+		return nil
+	}
+	parts := strings.Split(string(payload), "|")
+	if len(parts) != 3 {
+		return nil
+	}
+	exp, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || time.Now().Unix() > exp || !a.cfg.AllowedEmails[parts[0]] {
+		return nil
+	}
+	a.mu.Lock()
+	_, revoked := a.revoked[sigB64]
+	a.mu.Unlock()
+	if revoked {
+		return nil
+	}
+	return &session{email: parts[0], expires: time.Unix(exp, 0), csrf: parts[2]}
 }
 
 func (a *Auth) Logout(r *http.Request) {
-	if cookie, err := r.Cookie(sessionCookie); err == nil {
-		a.mu.Lock()
-		delete(a.sessions, cookie.Value)
-		a.mu.Unlock()
+	s := a.Session(r)
+	if s == nil {
+		return
 	}
+	cookie, _ := r.Cookie(sessionCookie)
+	_, sig, _ := strings.Cut(cookie.Value, ".")
+	a.mu.Lock()
+	a.revoked[sig] = s.expires
+	a.mu.Unlock()
 }
 
 func (a *Auth) SetCookie(w http.ResponseWriter, token string, maxAge int) {

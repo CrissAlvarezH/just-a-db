@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"net/url"
+	"path"
+	"sort"
 	"strings"
 	"time"
 )
@@ -17,6 +20,7 @@ type App struct {
 	db      *DB
 	auth    *Auth
 	backups *Backups
+	system  *System
 	pages   map[string]*template.Template
 }
 
@@ -29,12 +33,15 @@ type Page struct {
 	Error   string
 	Notice  string
 	Backups bool
-	Data    any
+	// Path of the current page without its query (e.g. a one-time ?notice=),
+	// for the Actualizar button.
+	Path string
+	Data any
 }
 
 type ctxKey struct{}
 
-func NewApp(cfg Config, db *DB, auth *Auth, backups *Backups) *App {
+func NewApp(cfg Config, db *DB, auth *Auth, backups *Backups, system *System) *App {
 	funcs := template.FuncMap{
 		"bytes": humanBytes,
 		"time": func(t time.Time) string {
@@ -43,14 +50,63 @@ func NewApp(cfg Config, db *DB, auth *Auth, backups *Backups) *App {
 			}
 			return t.In(cfg.Location).Format("2006-01-02 15:04")
 		},
-		"join": strings.Join,
+		"join":   strings.Join,
+		"clock":  func() string { return time.Now().In(cfg.Location).Format("15:04:05") },
+		"ubytes": func(n uint64) string { return humanBytes(int64(n)) },
+		"pct": func(used, total uint64) int {
+			if total == 0 {
+				return 0
+			}
+			return int(100 * used / total)
+		},
+		// Bar color: amber from 75%, red from 90%.
+		"level": func(p int) string {
+			switch {
+			case p >= 90:
+				return "high"
+			case p >= 75:
+				return "mid"
+			}
+			return "low"
+		},
+		"loadpct": func(load float64, cpus int) int {
+			if cpus == 0 {
+				return 0
+			}
+			return min(100, int(100*load/float64(cpus)))
+		},
+		"duration": func(d time.Duration) string {
+			days := int(d.Hours()) / 24
+			if days > 0 {
+				return fmt.Sprintf("%d d %d h", days, int(d.Hours())%24)
+			}
+			return fmt.Sprintf("%d h %d min", int(d.Hours()), int(d.Minutes())%60)
+		},
+		"f1":         func(f float64) string { return fmt.Sprintf("%.2f", f) },
+		"int":        func(f float64) int { return int(f) },
+		"sub":        func(a, b uint64) uint64 { return a - b },
+		"restorable": restorableBackup,
+		"ago": func(t time.Time) string {
+			d := time.Since(t)
+			switch {
+			case d < time.Minute:
+				return "hace un momento"
+			case d < time.Hour:
+				return fmt.Sprintf("hace %d min", int(d.Minutes()))
+			case d < 48*time.Hour:
+				return fmt.Sprintf("hace %d h", int(d.Hours()))
+			}
+			return fmt.Sprintf("hace %d días", int(d.Hours()/24))
+		},
+		// Older than a day and a bit: the nightly backup isn't covering it.
+		"stale": func(t time.Time) bool { return time.Since(t) > 26*time.Hour },
 	}
 	pages := map[string]*template.Template{}
-	for _, name := range []string{"login", "verify", "databases", "created", "delete", "backups", "folder"} {
+	for _, name := range []string{"login", "verify", "databases", "new", "created", "delete", "backups", "folder"} {
 		pages[name] = template.Must(template.New("").Funcs(funcs).ParseFS(assets,
-			"templates/layout.html", "templates/"+name+".html"))
+			"templates/layout.html", "templates/partials.html", "templates/"+name+".html"))
 	}
-	return &App{cfg: cfg, db: db, auth: auth, backups: backups, pages: pages}
+	return &App{cfg: cfg, db: db, auth: auth, backups: backups, system: system, pages: pages}
 }
 
 func humanBytes(n int64) string {
@@ -77,6 +133,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /logout", a.authed(a.logout))
 
 	mux.HandleFunc("GET /{$}", a.authed(a.databasesPage))
+	mux.HandleFunc("GET /databases/new", a.authed(a.newDatabasePage))
 	mux.HandleFunc("POST /databases", a.authed(a.createDatabase))
 	mux.HandleFunc("POST /databases/{name}/restrict", a.authed(a.restrictDatabase))
 	mux.HandleFunc("GET /databases/{name}/delete", a.authed(a.deletePage))
@@ -96,7 +153,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Referrer-Policy", "no-referrer")
+		// Not "no-referrer": with it browsers send "Origin: null" on form posts,
+		// which sameOrigin rejects.
+		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
@@ -143,6 +202,7 @@ func (a *App) render(w http.ResponseWriter, r *http.Request, name string, status
 		p.Email, p.CSRF = s.email, s.csrf
 	}
 	p.Backups = a.backups != nil
+	p.Path = r.URL.Path
 	var buf bytes.Buffer
 	if err := a.pages[name].ExecuteTemplate(&buf, "layout", p); err != nil {
 		log.Printf("render %s: %v", name, err)
@@ -207,7 +267,9 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 // --- Databases ---
 
 type databasesData struct {
+	System    SystemStats
 	Server    ServerInfo
+	DataSize  int64
 	Databases []Database
 	Roles     []Role
 	SuperUser string
@@ -220,12 +282,15 @@ func (a *App) databasesPage(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) renderDatabases(w http.ResponseWriter, r *http.Request, status int, notice, errMsg string) {
 	ctx := r.Context()
-	data := databasesData{SuperUser: a.cfg.SuperUser, DefaultDB: a.cfg.DefaultDB}
+	data := databasesData{SuperUser: a.cfg.SuperUser, DefaultDB: a.cfg.DefaultDB, System: a.system.Stats()}
 	var err error
 	if data.Server, err = a.db.ServerInfo(ctx); err == nil {
 		if data.Databases, err = a.db.Databases(ctx); err == nil {
 			data.Roles, err = a.db.Roles(ctx)
 		}
+	}
+	for _, d := range data.Databases {
+		data.DataSize += d.Size
 	}
 	if err != nil {
 		log.Printf("databases: %v", err)
@@ -257,16 +322,80 @@ func (a *App) credentialsFor(title, user, password, database string) credentials
 	return credentials{Title: title, User: user, Password: password, Database: database, URL: u.String()}
 }
 
+// Restores run inside the request (the new password is only shown in its
+// response), so they get longer than the server's WriteTimeout.
+const restoreTimeout = 30 * time.Minute
+
+type newDatabaseData struct {
+	Name       string
+	Backup     string // S3 key to restore from, "" for an empty database
+	Choices    []backupGroup
+	Creds      *credentials
+	RestoreLog string
+}
+
+func (a *App) renderNew(w http.ResponseWriter, r *http.Request, status int, data newDatabaseData, errMsg string) {
+	if data.Creds == nil {
+		choices, err := a.restoreChoices(r.Context(), 10)
+		if err != nil && errMsg == "" {
+			errMsg = "No se pudo listar los backups de S3: " + err.Error()
+		}
+		data.Choices = choices
+	}
+	title := "Nueva base de datos"
+	if data.Creds != nil {
+		title = "Base creada"
+	}
+	a.render(w, r, "new", status, Page{Title: title, Nav: "databases", Error: errMsg, Data: data})
+}
+
+func (a *App) newDatabasePage(w http.ResponseWriter, r *http.Request) {
+	// ?backup=<key> preselects it (the link on a backups folder page).
+	a.renderNew(w, r, http.StatusOK, newDatabaseData{Backup: r.URL.Query().Get("backup")}, "")
+}
+
+// createDatabase answers on the same page: the form again with the error, or
+// the new credentials.
 func (a *App) createDatabase(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(r.PostFormValue("name"))
-	password, err := a.db.CreateDatabase(r.Context(), name)
-	if err != nil {
-		a.renderDatabases(w, r, http.StatusBadRequest, "", err.Error())
+	data := newDatabaseData{
+		Name:   strings.TrimSpace(r.PostFormValue("name")),
+		Backup: r.PostFormValue("backup"),
+	}
+	if data.Backup != "" && (a.backups == nil || !restorableBackup(data.Backup)) {
+		a.renderNew(w, r, http.StatusBadRequest, data, "Ese backup no se puede restaurar.")
 		return
 	}
-	log.Printf("database %q created by %s", name, a.email(r))
-	a.render(w, r, "created", http.StatusOK, Page{Title: "Base creada", Nav: "databases",
-		Data: a.credentialsFor("Base de datos "+name+" creada", name, password, name)})
+	password, err := a.db.CreateDatabase(r.Context(), data.Name)
+	if err != nil {
+		a.renderNew(w, r, http.StatusBadRequest, data, err.Error())
+		return
+	}
+	log.Printf("database %q created by %s", data.Name, a.email(r))
+
+	title := "Base de datos " + data.Name + " creada"
+	if data.Backup != "" {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(restoreTimeout + time.Minute))
+		ctx, cancel := context.WithTimeout(r.Context(), restoreTimeout)
+		defer cancel()
+		out, err := a.RestoreBackup(ctx, data.Backup, data.Name, data.Name)
+		if err != nil {
+			// Brand new and half restored: nothing to keep.
+			if _, dropErr := a.db.DropDatabase(context.Background(), data.Name, true); dropErr != nil {
+				log.Printf("drop %q after failed restore: %v", data.Name, dropErr)
+			}
+			log.Printf("restore of %q into %q failed: %v", data.Backup, data.Name, err)
+			data.RestoreLog = out
+			a.renderNew(w, r, http.StatusBadRequest, data,
+				fmt.Sprintf("No se pudo restaurar el backup (%v), así que no se creó la base. Revisa el log abajo.", err))
+			return
+		}
+		log.Printf("backup %q restored into %q by %s", data.Backup, data.Name, a.email(r))
+		data.RestoreLog = out
+		title = "Base de datos " + data.Name + " creada desde " + path.Base(data.Backup)
+	}
+	creds := a.credentialsFor(title, data.Name, password, data.Name)
+	data.Creds = &creds
+	a.renderNew(w, r, http.StatusOK, data, "")
 }
 
 func (a *App) resetPassword(w http.ResponseWriter, r *http.Request) {
@@ -295,32 +424,80 @@ func (a *App) restrictDatabase(w http.ResponseWriter, r *http.Request) {
 	redirectNotice(w, r, "/", fmt.Sprintf("Ahora solo el dueño de %s (y el superusuario) pueden conectarse.", name))
 }
 
+// A database can only be dropped right after a backup of it: one taken at
+// most this long ago.
+const deleteBackupMaxAge = 10 * time.Minute
+
 type deleteData struct {
-	Name       string
-	LastBackup *BackupObject
+	Name        string
+	LastBackup  *BackupObject
+	BackupFresh bool // LastBackup is recent enough to delete
+	NoS3        bool
+	MaxAgeMin   int
+	Run         BackupRun // the panel's current/last manual backup
+	RunningThis bool      // a backup of this database is running now
+}
+
+// deleteState checks the database's latest backup in S3.
+func (a *App) deleteState(ctx context.Context, name string) (deleteData, error) {
+	data := deleteData{Name: name, MaxAgeMin: int(deleteBackupMaxAge.Minutes())}
+	if a.backups == nil {
+		data.NoS3 = true
+		return data, nil
+	}
+	data.Run = a.backups.Status()
+	data.RunningThis = data.Run.Running && data.Run.Database == name
+	latest, err := a.backups.Latest(ctx, name)
+	if err != nil {
+		return data, err
+	}
+	data.LastBackup = latest
+	data.BackupFresh = latest != nil && time.Since(latest.Modified) <= deleteBackupMaxAge
+	return data, nil
+}
+
+func (a *App) renderDelete(w http.ResponseWriter, r *http.Request, status int, name, errMsg string) {
+	data, err := a.deleteState(r.Context(), name)
+	if err != nil && errMsg == "" {
+		errMsg = "No se pudo revisar los backups en S3: " + err.Error()
+	}
+	a.render(w, r, "delete", status, Page{Title: "Borrar " + name, Nav: "databases",
+		Notice: r.URL.Query().Get("notice"), Error: errMsg, Data: data})
 }
 
 func (a *App) deletePage(w http.ResponseWriter, r *http.Request) {
-	data := deleteData{Name: r.PathValue("name")}
-	if a.backups != nil {
-		if list, err := a.backups.List(r.Context(), data.Name); err == nil && len(list) > 0 {
-			data.LastBackup = &list[0]
-		}
+	name := r.PathValue("name")
+	if exists, err := a.db.databaseExists(r.Context(), name); err == nil && !exists {
+		redirectNotice(w, r, "/", "La base de datos "+name+" no existe.")
+		return
 	}
-	a.render(w, r, "delete", http.StatusOK, Page{Title: "Borrar " + data.Name, Nav: "databases", Data: data})
+	a.renderDelete(w, r, http.StatusOK, name, "")
 }
 
 func (a *App) deleteDatabase(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if r.PostFormValue("confirm") != name {
-		a.render(w, r, "delete", http.StatusBadRequest, Page{Title: "Borrar " + name, Nav: "databases",
-			Error: "El nombre no coincide.", Data: deleteData{Name: name}})
+		a.renderDelete(w, r, http.StatusBadRequest, name, "El nombre no coincide.")
+		return
+	}
+	// Checked again here, not only on the page: the backup may have aged
+	// while it was open.
+	state, err := a.deleteState(r.Context(), name)
+	switch {
+	case err != nil:
+		a.renderDelete(w, r, http.StatusBadGateway, name, "No se pudo revisar los backups en S3: "+err.Error())
+		return
+	case state.NoS3:
+		a.renderDelete(w, r, http.StatusBadRequest, name, "No hay S3 configurado para backups, así que no se puede borrar.")
+		return
+	case !state.BackupFresh:
+		a.renderDelete(w, r, http.StatusBadRequest, name,
+			fmt.Sprintf("Para borrarla necesita un backup de hace %d minutos o menos.", state.MaxAgeMin))
 		return
 	}
 	extra, err := a.db.DropDatabase(r.Context(), name, r.PostFormValue("drop_owner") == "on")
 	if err != nil {
-		a.render(w, r, "delete", http.StatusBadRequest, Page{Title: "Borrar " + name, Nav: "databases",
-			Error: err.Error(), Data: deleteData{Name: name}})
+		a.renderDelete(w, r, http.StatusBadRequest, name, err.Error())
 		return
 	}
 	log.Printf("database %q dropped by %s", name, a.email(r))
@@ -337,8 +514,20 @@ func (a *App) email(r *http.Request) string {
 // --- Backups ---
 
 type backupsData struct {
-	Folders []string
-	Run     BackupRun
+	Databases []backupSummary
+	Globals   *backupSummary
+	Run       BackupRun
+	Recent    []BackupRunLog
+	RecentErr string
+}
+
+// backupSummary is one row of the backups page: a database (existing or
+// dropped) and its backups in S3.
+type backupSummary struct {
+	Name   string
+	Exists bool
+	Count  int
+	Latest *BackupObject
 }
 
 func (a *App) backupsPage(w http.ResponseWriter, r *http.Request) {
@@ -347,15 +536,65 @@ func (a *App) backupsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := backupsData{Run: a.backups.Status()}
-	var errMsg string
-	folders, err := a.backups.Folders(r.Context())
+	errMsg, err := a.backupSummaries(r.Context(), &data)
 	if err != nil {
 		log.Printf("backups: %v", err)
-		errMsg = "No se pudo listar S3: " + err.Error()
 	}
-	data.Folders = folders
+	if data.Recent, err = a.backups.RecentRuns(r.Context(), 3); err != nil {
+		log.Printf("backup runs: %v", err)
+		data.RecentErr = "No se pudieron leer las corridas de CloudWatch: " + err.Error()
+	}
 	a.render(w, r, "backups", http.StatusOK, Page{Title: "Backups", Nav: "backups",
 		Notice: r.URL.Query().Get("notice"), Error: errMsg, Data: data})
+}
+
+// backupSummaries fills one row per database in Postgres or folder in S3.
+func (a *App) backupSummaries(ctx context.Context, data *backupsData) (string, error) {
+	rows := map[string]*backupSummary{}
+	var names []string
+	add := func(name string) *backupSummary {
+		if rows[name] == nil {
+			rows[name] = &backupSummary{Name: name}
+			names = append(names, name)
+		}
+		return rows[name]
+	}
+	dbs, err := a.db.Databases(ctx)
+	if err != nil {
+		return "No se pudo consultar Postgres: " + err.Error(), err
+	}
+	for _, d := range dbs {
+		add(d.Name).Exists = true
+	}
+	folders, err := a.backups.Folders(ctx)
+	if err != nil {
+		return "No se pudo listar S3: " + err.Error(), err
+	}
+	for _, f := range folders {
+		list, err := a.backups.List(ctx, f)
+		if err != nil {
+			return "No se pudo listar S3: " + err.Error(), err
+		}
+		if strings.HasPrefix(f, "_") && f != "_globals" {
+			continue // _logs
+		}
+		row := &backupSummary{Name: f}
+		if f != "_globals" {
+			row = add(f)
+		}
+		row.Count = len(list)
+		if len(list) > 0 {
+			row.Latest = &list[0]
+		}
+		if f == "_globals" {
+			data.Globals = row
+		}
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		data.Databases = append(data.Databases, *rows[n])
+	}
+	return "", nil
 }
 
 type folderData struct {
@@ -398,10 +637,21 @@ func (a *App) runBackup(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	notice := "Ya hay un backup corriendo."
-	if a.backups.Run() {
-		log.Printf("backup started by %s", a.email(r))
-		notice = "Backup iniciado. Recarga la página para ver el progreso."
+	// With `database`, back up only that one and go back to its delete page.
+	database := r.PostFormValue("database")
+	back := "/backups"
+	if database != "" {
+		exists, err := a.db.databaseExists(r.Context(), database)
+		if err != nil || !exists {
+			redirectNotice(w, r, "/", "La base de datos "+database+" no existe.")
+			return
+		}
+		back = "/databases/" + url.PathEscape(database) + "/delete"
 	}
-	redirectNotice(w, r, "/backups", notice)
+	notice := "Ya hay un backup corriendo, espera a que termine."
+	if a.backups.Run(database) {
+		log.Printf("backup of %q started by %s", cmp.Or(database, "every database"), a.email(r))
+		notice = "Backup iniciado."
+	}
+	redirectNotice(w, r, back, notice)
 }

@@ -137,6 +137,15 @@ Resources:
                 Resource: 
                   - !GetAtt BackupsLogGroup.Arn
                   - !GetAtt DatabaseLogGroup.Arn
+              # The panel lists the latest backup runs: nightly ones in the
+              # backups' group, manual ones in the panel's (database-logs).
+              - Effect: Allow
+                Action:
+                  - logs:FilterLogEvents
+                  - logs:GetLogEvents
+                Resource:
+                  - !GetAtt BackupsLogGroup.Arn
+                  - !GetAtt DatabaseLogGroup.Arn
 
   BackupsLogGroup:
     Type: AWS::Logs::LogGroup

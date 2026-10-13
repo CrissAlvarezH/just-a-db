@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"fmt"
 	"log"
@@ -28,6 +29,9 @@ type Config struct {
 	DatabaseURL   string
 	DefaultDB     string
 	SuperUser     string
+	SuperPassword string
+	DBHost        string
+	DBPort        string
 	AllowedEmails map[string]bool
 	BrevoAPIKey   string
 	MailFrom      string
@@ -37,9 +41,11 @@ type Config struct {
 	TrustProxy    bool
 	PublicDBHost  string
 	PublicDBPort  string
+	SessionKey    []byte
 	S3Bucket      string
 	S3PathStyle   bool
 	BackupScript  string
+	DiskPath      string
 	Location      *time.Location
 }
 
@@ -84,6 +90,9 @@ func loadConfig() Config {
 		DatabaseURL:   dbURL.String(),
 		DefaultDB:     env("POSTGRES_DB", ""),
 		SuperUser:     user,
+		SuperPassword: pass,
+		DBHost:        env("DB_HOST", "database"),
+		DBPort:        env("DB_PORT", "5432"),
 		AllowedEmails: allowed,
 		BrevoAPIKey:   env("BREVO_API_KEY", ""),
 		MailFrom:      env("MAIL_FROM", ""),
@@ -93,15 +102,29 @@ func loadConfig() Config {
 		TrustProxy:    env("TRUST_PROXY", "true") != "false",
 		PublicDBHost:  env("PUBLIC_DB_HOST", "localhost"),
 		PublicDBPort:  env("PUBLIC_DB_PORT", "6432"),
+		SessionKey:    sessionKey(pass),
 		S3Bucket:      env("S3_BUCKET", ""),
 		S3PathStyle:   env("S3_FORCE_PATH_STYLE", "") == "true",
 		BackupScript:  env("BACKUP_SCRIPT", "/app/run.sh"),
+		DiskPath:      env("DISK_PATH", "/"),
 		Location:      loc,
 	}
 	if !cfg.DevLogCodes && (cfg.BrevoAPIKey == "" || cfg.MailFrom == "") {
 		log.Fatal("BREVO_API_KEY and MAIL_FROM are required to send login codes")
 	}
 	return cfg
+}
+
+// sessionKey signs session cookies: SESSION_SECRET if set, else derived from
+// the Postgres password, so there's nothing else to configure. Changing it
+// logs everyone out.
+func sessionKey(dbPassword string) []byte {
+	secret := os.Getenv("SESSION_SECRET")
+	if secret == "" {
+		secret = "just-a-db-panel/session/" + dbPassword
+	}
+	sum := sha256.Sum256([]byte(secret))
+	return sum[:]
 }
 
 func main() {
@@ -124,7 +147,7 @@ func main() {
 		log.Print("S3_BUCKET not set: backups page disabled")
 	}
 
-	app := NewApp(cfg, db, NewAuth(cfg), backups)
+	app := NewApp(cfg, db, NewAuth(cfg), backups, NewSystem(cfg.DiskPath))
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           app.Routes(),

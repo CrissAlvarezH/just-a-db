@@ -2,19 +2,36 @@
 # Dumps every database (plus roles) to S3, then prunes old backups. Any error
 # aborts the run before anything is pruned, and pings BACKUP_HEALTHCHECK_URL
 # (if set) with /fail so a broken backup doesn't go unnoticed.
+#
+# `run.sh <database>` backs up only that one (the panel does it before deleting
+# a database); it doesn't ping the healthcheck, which tracks the nightly run.
+#
+# The output goes to CloudWatch through Docker's awslogs driver. Each run is
+# framed by "=== Backup run started (<all|database>)" and
+# "=== Backup run finished: <ok|failed> (<all|database>)", which the panel
+# looks for to list the latest runs.
 set -euo pipefail
+
+ONLY_DB="${1:-}"
+SCOPE="${ONLY_DB:-all}"
+TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M-%S")
+
+echo "=== Backup run started ($SCOPE)"
+trap 'status=$?; result=ok; [ "$status" -eq 0 ] || result=failed; echo "=== Backup run finished: $result ($SCOPE)"' EXIT
 
 DB_HOST="${DB_HOST:-database}"
 DB_PORT="${DB_PORT:-5432}"
 # How many backups of each database to keep in S3.
 BACKUP_KEEP="${BACKUP_KEEP:-14}"
-# A dump smaller than this (bytes) is treated as failed.
-MIN_BACKUP_BYTES="${MIN_BACKUP_BYTES:-1024}"
+# A dump smaller than this (bytes) is treated as failed. An empty database
+# dumps to ~850 bytes, so this only catches truncated files; pg_restore --list
+# below checks the rest.
+MIN_BACKUP_BYTES="${MIN_BACKUP_BYTES:-200}"
 
 export PGPASSWORD="$POSTGRES_PASSWORD"
 
 ping_healthcheck() {
-  if [ -n "${BACKUP_HEALTHCHECK_URL:-}" ]; then
+  if [ -n "${BACKUP_HEALTHCHECK_URL:-}" ] && [ -z "$ONLY_DB" ]; then
     wget -q -O /dev/null -T 10 "${BACKUP_HEALTHCHECK_URL}$1" || true
   fi
 }
@@ -22,10 +39,18 @@ trap 'echo "Backup FAILED"; ping_healthcheck /fail' ERR
 
 ping_healthcheck /start
 
-TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-
-databases=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -At \
-  -c "SELECT datname FROM pg_database WHERE datname NOT IN ('template0', 'template1', 'postgres')")
+if [ -n "$ONLY_DB" ]; then
+  # psql only interpolates :'var' in queries read from stdin, not from -c.
+  databases=$(echo "SELECT datname FROM pg_database WHERE datname = :'db'" |
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -At -v db="$ONLY_DB")
+  if [ -z "$databases" ]; then
+    echo "Database $ONLY_DB not found"
+    exit 1
+  fi
+else
+  databases=$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -At \
+    -c "SELECT datname FROM pg_database WHERE datname NOT IN ('template0', 'template1', 'postgres')")
+fi
 
 # Roles and their passwords live outside every database dump.
 GLOBALS_FILE="/tmp/globals_${TIMESTAMP}.sql.gz"
@@ -58,13 +83,15 @@ echo "All database backups completed and uploaded successfully"
 # Only reached when every backup above succeeded.
 prune() {
   local prefix="$1"
+  local keep="${2:-$BACKUP_KEEP}"
   # `aws s3 ls` lines start with the date, so a plain sort is oldest first.
   local backups
-  backups=$(aws s3 ls "s3://$S3_BUCKET/$prefix/" | sort | awk '{print $4}' | sed '/^$/d')
+  # `aws s3 ls` exits 1 when the prefix is empty (e.g. _logs on the first run).
+  backups=$({ aws s3 ls "s3://$S3_BUCKET/$prefix/" || true; } | sort | awk '{print $4}' | sed '/^$/d')
   local count
   count=$(printf '%s\n' "$backups" | sed '/^$/d' | wc -l)
-  if [ "$count" -gt "$BACKUP_KEEP" ]; then
-    printf '%s\n' "$backups" | head -n "$((count - BACKUP_KEEP))" | while read -r backup; do
+  if [ "$count" -gt "$keep" ]; then
+    printf '%s\n' "$backups" | head -n "$((count - keep))" | while read -r backup; do
       echo "Deleting old backup: s3://$S3_BUCKET/$prefix/$backup"
       aws s3 rm "s3://$S3_BUCKET/$prefix/$backup"
     done

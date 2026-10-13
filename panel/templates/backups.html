@@ -1,32 +1,73 @@
 {{define "content"}}
 {{$csrf := .CSRF}}
+{{template "refresh" .}}
 {{with .Data}}
 <section class="card">
-  <h2>Backups en S3</h2>
-  <ul class="folders">
-    {{range .Folders}}
-      <li><a href="/backups/f/{{.}}">{{if eq . "_globals"}}_globals <span class="muted">(usuarios y roles)</span>{{else}}{{.}}{{end}}</a></li>
+  <div class="card-head">
+    <h2>Backups</h2>
+    <form method="post" action="/backups/run"
+          data-confirm="Respalda todas las bases a S3 y después borra los backups que pasen del límite."
+          data-confirm-title="¿Hacer un backup ahora?" data-confirm-ok="Hacer backup" data-confirm-safe>
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button {{if .Run.Running}}disabled{{end}}>{{if .Run.Running}}Haciendo backup…{{else}}Hacer backup ahora{{end}}</button>
+    </form>
+  </div>
+  <p class="muted">Un backup cada noche de todas las bases, guardado en S3. Puedes descargarlos o crear una base nueva a partir de uno.</p>
+
+  {{with .Run}}{{if .Running}}
+    <p class="notice">Haciendo backup de {{if .Database}}<strong>{{.Database}}</strong>{{else}}todas las bases{{end}}… (iniciado {{time .Started}})</p>
+    <pre class="log" data-autorefresh="3">{{.Log}}</pre>
+  {{end}}{{end}}
+
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Base de datos</th><th>Último backup</th><th>Tamaño</th><th>Guardados</th><th></th></tr></thead>
+    <tbody>
+    {{range .Databases}}
+      <tr>
+        <td><strong>{{.Name}}</strong>{{if not .Exists}} <span class="tag">ya no existe</span>{{end}}</td>
+        {{if .Latest}}
+          <td>{{time .Latest.Modified}} <span class="muted">· {{ago .Latest.Modified}}</span>
+            {{if and .Exists (stale .Latest.Modified)}}<span class="tag warn">viejo</span>{{end}}</td>
+          <td>{{bytes .Latest.Size}}</td>
+          <td>{{.Count}}</td>
+          <td class="actions"><a href="/backups/f/{{.Name}}">Ver backups</a></td>
+        {{else}}
+          <td colspan="4"><span class="tag warn">sin backups</span></td>
+        {{end}}
+      </tr>
     {{else}}
-      <li class="muted">Todavía no hay backups.</li>
+      <tr><td colspan="5" class="muted">No hay bases de datos.</td></tr>
     {{end}}
-  </ul>
+    {{with .Globals}}
+      <tr>
+        <td><strong>Usuarios y roles</strong> <span class="muted">(_globals)</span></td>
+        <td>{{if .Latest}}{{time .Latest.Modified}} <span class="muted">· {{ago .Latest.Modified}}</span>{{end}}</td>
+        <td>{{if .Latest}}{{bytes .Latest.Size}}{{end}}</td>
+        <td>{{.Count}}</td>
+        <td class="actions"><a href="/backups/f/_globals">Ver backups</a></td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
 </section>
 
 <section class="card">
-  <h2>Backup manual</h2>
-  <p class="muted">Corre el mismo script del backup nocturno: todas las bases, y después borra los que pasen del límite.</p>
-  <form method="post" action="/backups/run" class="row">
-    <input type="hidden" name="csrf" value="{{$csrf}}">
-    <button {{if .Run.Running}}disabled{{end}}>{{if .Run.Running}}Corriendo…{{else}}Hacer backup ahora{{end}}</button>
-  </form>
-  {{if not .Run.Started.IsZero}}
-    <p>
-      Iniciado {{time .Run.Started}}
-      {{if .Run.Running}}<span class="tag">en curso</span>
-      {{else if .Run.OK}}<span class="tag ok">terminó bien</span> {{time .Run.Finished}}
-      {{else}}<span class="tag warn">falló</span> {{time .Run.Finished}}{{end}}
-    </p>
-    <pre class="log">{{.Run.Log}}</pre>
+  <h2>Últimas corridas</h2>
+  <p class="muted">Las nocturnas y las manuales de los últimos 7 días, desde CloudWatch Logs. Haz clic en una para ver su log.</p>
+  {{if .RecentErr}}<p class="error">{{.RecentErr}}</p>{{end}}
+  {{range .Recent}}
+    <details class="run" {{if eq .Result "failed"}}open{{end}}>
+      <summary>
+        {{if eq .Result "ok"}}<span class="tag ok">bien</span>{{else if eq .Result "failed"}}<span class="tag warn">falló</span>{{else}}<span class="tag">sin resultado</span>{{end}}
+        <strong>{{time .Started}}</strong>
+        <span class="muted">· {{ago .Started}} · {{if eq .Scope "all"}}todas las bases{{else}}solo {{.Scope}}{{end}}</span>
+      </summary>
+      <pre class="log">{{or .Log "(log vacío)"}}</pre>
+    </details>
+  {{else}}
+    <p class="muted">Todavía no hay corridas registradas. Aparecen desde el próximo backup.</p>
   {{end}}
 </section>
 {{end}}

@@ -6,9 +6,8 @@ services:
     image: "postgres:17-alpine"
     restart: always
     ports:
-      # Direct access, for the move to pgbouncer. Once every client uses 6432,
-      # change it to "127.0.0.1:5432:5432" and close 5432 in the security group.
-      - "5432:5432"
+      # 5433 on the host, so it can run next to another local Postgres.
+      - "5433:5432"
     env_file:
       - .db.env
     # Sized for a t4g.small (2 GB RAM). Clients go through pgbouncer, which
@@ -64,8 +63,8 @@ services:
       database:
         condition: service_healthy
 
-  # Admin UI on http://localhost:8080. Login codes are printed in its logs
-  # (DEV_LOG_CODES) instead of emailed.
+  # Admin UI on http://localhost:8080 (no caddy). With DEV_LOG_CODES=true in
+  # .panel.env, login codes are printed in its logs instead of emailed.
   panel:
     image: just-a-db-panel
     build:
@@ -77,11 +76,14 @@ services:
     env_file:
       - .db.env
       - .backup.env
+      - .panel.env
     environment:
-      ALLOWED_EMAILS: ${ALLOWED_EMAILS:-admin@localhost}
-      DEV_LOG_CODES: "true"
       SECURE_COOKIES: "false"
       TRUST_PROXY: "false"
+      # Disk usage shown in the panel: the disk where Postgres' data lives.
+      DISK_PATH: /pgdata
+    volumes:
+      - dbdata:/pgdata:ro
     depends_on:
       database:
         condition: service_healthy
