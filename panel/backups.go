@@ -148,8 +148,14 @@ type BackupRunLog struct {
 	Trigger string    // "nightly" or "manual"
 	// "ok", "failed", "running" (no end yet, recent lines) or "interrupted".
 	Result     string
-	ConsoleURL string // the stream in the CloudWatch console
-	Log        string // only from RunLog
+	ConsoleURL string    // the stream in the CloudWatch console
+	Lines      []RunLine // only from RunLog
+}
+
+// RunLine is one line of a run's log, with the time CloudWatch has for it.
+type RunLine struct {
+	At   time.Time
+	Text string
 }
 
 const runStarted = "=== Backup run started"
@@ -260,7 +266,7 @@ func (b *Backups) RunLog(ctx context.Context, stream string) (BackupRunLog, erro
 		LogStreamName: aws.String(stream),
 		StartFromHead: aws.Bool(true),
 	}
-	var lines []string
+	var lines []RunLine
 	last := ""
 	run.ConsoleURL = b.ConsoleURL(stream)
 	run.Last = run.Started
@@ -275,8 +281,8 @@ func (b *Backups) RunLog(ctx context.Context, stream string) (BackupRunLog, erro
 		}
 		for _, e := range out.Events {
 			last = strings.TrimRight(aws.ToString(e.Message), "\n")
-			lines = append(lines, last)
 			run.Last = time.UnixMilli(aws.ToInt64(e.Timestamp))
+			lines = append(lines, RunLine{At: run.Last, Text: last})
 		}
 		// The same token back means the end of the stream.
 		if len(out.Events) == 0 || aws.ToString(out.NextForwardToken) == aws.ToString(in.NextToken) {
@@ -285,7 +291,7 @@ func (b *Backups) RunLog(ctx context.Context, stream string) (BackupRunLog, erro
 		in.NextToken = out.NextForwardToken
 	}
 	run.Result = runResult(last, run.Last, time.Now())
-	run.Log = strings.Join(lines, "\n")
+	run.Lines = lines
 	return run, nil
 }
 

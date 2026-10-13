@@ -226,6 +226,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 
 details summary { cursor: pointer; margin-bottom: 8px; }
 .log.run-log { max-height: 70vh; }
+/* Backups of databases that no longer exist. */
+tr.gone td { opacity: 0.5; }
 
 .log {
   background: var(--bg);

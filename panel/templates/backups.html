@@ -24,8 +24,8 @@
     <thead><tr><th>Base de datos</th><th>Último backup</th><th>Tamaño</th><th>Guardados</th><th></th></tr></thead>
     <tbody>
     {{range .Databases}}
-      <tr>
-        <td><strong>{{.Name}}</strong>{{if not .Exists}} <span class="tag">ya no existe</span>{{end}}</td>
+      <tr{{if not .Exists}} class="gone" title="Esta base ya no existe; sus backups siguen en S3."{{end}}>
+        <td><strong>{{.Name}}</strong></td>
         {{if .Latest}}
           <td>{{time .Latest.Modified}} <span class="muted">· {{ago .Latest.Modified}}</span>
             {{if and .Exists (stale .Latest.Modified)}}<span class="tag warn">viejo</span>{{end}}</td>

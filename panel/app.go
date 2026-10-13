@@ -52,6 +52,7 @@ func NewApp(cfg Config, db *DB, auth *Auth, backups *Backups, system *System) *A
 			return t.In(cfg.Location).Format("2006-01-02 15:04")
 		},
 		"join":   strings.Join,
+		"hms":    func(t time.Time) string { return t.In(cfg.Location).Format("15:04:05") },
 		"clock":  func() string { return time.Now().In(cfg.Location).Format("15:04:05") },
 		"nowMs":  func() int64 { return time.Now().UnixMilli() },
 		"ubytes": func(n uint64) string { return humanBytes(int64(n)) },

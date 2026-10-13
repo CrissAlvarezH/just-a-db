@@ -9,7 +9,10 @@
   <p>{{template "runResult" .Result}}
     {{if eq .Scope "all"}}Todas las bases{{else}}Solo <strong>{{.Scope}}</strong>{{end}}
     <span class="muted">· {{if eq .Trigger "manual"}}manual{{else}}nocturna{{end}} · duró {{took .Started .Last}} · {{ago .Started}}</span></p>
-  <pre class="log run-log" {{if eq .Result "running"}}data-autorefresh="5"{{end}}>{{or .Log "(log vacío)"}}</pre>
+  <pre class="log run-log" {{if eq .Result "running"}}data-autorefresh="5"{{end}}>
+{{- range .Lines}}<span class="muted">{{hms .At}}</span>  {{.Text}}
+{{else}}(log vacío){{end -}}
+</pre>
   <p class="muted">Stream <code class="break">{{.Stream}}</code></p>
 </section>
 {{end}}
