@@ -99,3 +99,28 @@ if (since.length) {
   tick();
   setInterval(tick, 5000);
 }
+
+// Tooltips: [data-tip] shows its text below the element on hover or focus
+// (a tap focuses it on touch screens).
+let tooltip;
+const hideTip = () => tooltip?.remove();
+const showTip = (el) => {
+  hideTip();
+  tooltip = document.createElement("div");
+  tooltip.className = "tooltip";
+  tooltip.textContent = el.dataset.tip;
+  document.body.append(tooltip);
+  const r = el.getBoundingClientRect();
+  const t = tooltip.getBoundingClientRect();
+  const left = Math.min(Math.max(16, r.left), window.innerWidth - t.width - 16);
+  const below = r.bottom + 6 + t.height < window.innerHeight;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${below ? r.bottom + 6 : r.top - t.height - 6}px`;
+};
+document.querySelectorAll("[data-tip]").forEach((el) => {
+  el.addEventListener("mouseenter", () => showTip(el));
+  el.addEventListener("mouseleave", hideTip);
+  el.addEventListener("focus", () => showTip(el));
+  el.addEventListener("blur", hideTip);
+});
+window.addEventListener("scroll", hideTip, true);

@@ -55,7 +55,7 @@
     {{range .Databases}}
       <tr>
         <td><strong>{{.Name}}</strong>
-          {{if .PublicConnect}}<span class="tag warn" title="Cualquier usuario puede conectarse a esta base">abierta</span>{{end}}
+          {{if .PublicConnect}}<span class="tag warn" tabindex="0" data-tip="Cualquier usuario del servidor puede conectarse a esta base, aunque no sea su dueño. No puede leer ni escribir sus tablas sin permisos aparte, pero sí ver qué tablas hay. Es lo normal en bases creadas a mano; las del panel nacen cerradas.">abierta</span>{{end}}
         </td>
         <td>{{.Owner}}</td>
         <td>{{bytes .Size}}</td>
@@ -67,7 +67,7 @@
                 data-confirm="Solo su dueño ({{.Owner}}) y el superusuario podrán conectarse. Las sesiones abiertas de otros usuarios se cierran."
                 data-confirm-title="¿Restringir {{.Name}}?" data-confirm-ok="Restringir">
             <input type="hidden" name="csrf" value="{{$csrf}}">
-            <button class="link">Restringir</button>
+            <button class="link" data-tip="Cierra la base: solo podrán conectarse su dueño, el superusuario y los usuarios con acceso dado desde el panel. Las apps que usan esos usuarios no se ven afectadas.">Restringir</button>
           </form>
           {{end}}
           <a class="danger" href="/databases/{{.Name}}/delete">Borrar</a>

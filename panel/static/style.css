@@ -242,3 +242,20 @@ details summary { cursor: pointer; margin-bottom: 8px; }
   .creds { grid-template-columns: 1fr; }
   .creds dt { margin-top: 8px; }
 }
+
+/* Tooltip for [data-tip] (app.js): fixed, so table scrolling can't clip it. */
+.tooltip {
+  position: fixed;
+  z-index: 100;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  font-size: 13px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.tag[data-tip] { cursor: help; }
