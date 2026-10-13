@@ -51,7 +51,10 @@ reserve_pool_size = ${RESERVE_POOL_SIZE:-5}
 ; Below Postgres' idle_session_timeout (5min), so pgbouncer closes idle
 ; server connections before Postgres kills them.
 server_idle_timeout = 240
-ignore_startup_parameters = extra_float_digits,options
+; Startup parameters pgbouncer can't pass on are refused unless listed here.
+; statement_timeout: node-postgres sends it when its Pool has that option
+; (wompi-router, which also has a client-side query_timeout).
+ignore_startup_parameters = extra_float_digits,options,statement_timeout
 
 $TLS_LINES
 INI
