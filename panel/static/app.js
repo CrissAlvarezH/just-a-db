@@ -79,3 +79,23 @@ if (auto) {
 document.querySelectorAll("[data-w]").forEach((el) => {
   el.style.width = `${Math.min(100, Number(el.dataset.w))}%`;
 });
+
+// "Actualizado hace …": the server stamps when it read the data (data-since,
+// Unix ms); the exact time stays in the tooltip.
+const since = document.querySelectorAll("[data-since]");
+const ago = (ms) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 10) return "hace un momento";
+  if (s < 60) return `hace ${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `hace ${h} h` : `hace ${Math.floor(h / 24)} d`;
+};
+const tick = () => since.forEach((el) => {
+  el.textContent = `Actualizado ${ago(Date.now() - Number(el.dataset.since))}`;
+});
+if (since.length) {
+  tick();
+  setInterval(tick, 5000);
+}

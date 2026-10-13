@@ -23,7 +23,7 @@
 {{/* Reloads the page: the data is read from Postgres/S3 on every load. */}}
 {{define "refresh"}}
 <div class="refresh">
-  <span class="muted">Actualizado a las {{clock}}</span>
+  <span class="muted" data-since="{{nowMs}}" title="A las {{clock}}">Actualizado hace un momento</span>
   <a class="button secondary" href="{{.Path}}">↻ Actualizar</a>
 </div>
 {{end}}

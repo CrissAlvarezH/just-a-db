@@ -52,6 +52,7 @@ func NewApp(cfg Config, db *DB, auth *Auth, backups *Backups, system *System) *A
 		},
 		"join":   strings.Join,
 		"clock":  func() string { return time.Now().In(cfg.Location).Format("15:04:05") },
+		"nowMs":  func() int64 { return time.Now().UnixMilli() },
 		"ubytes": func(n uint64) string { return humanBytes(int64(n)) },
 		"pct": func(used, total uint64) int {
 			if total == 0 {
