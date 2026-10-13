@@ -62,7 +62,7 @@ or add inbound rules for TCP 6432, 80 and 443 to the `just-a-db` security group 
   (`SET`, advisory locks, `LISTEN`).
 - Check it: `psql "host=<ip> port=6432 user=<user> dbname=<db> sslmode=require"`.
 
-## 6. Close direct access
+## 6. Close direct access (done in the repo: rerun `docker-compose up -d database` after pulling)
 
 Once nothing connects to 5432 from outside:
 

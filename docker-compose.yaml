@@ -6,9 +6,9 @@ services:
     image: "postgres:17-alpine"
     restart: always
     ports:
-      # Direct access, for the move to pgbouncer. Once every client uses 6432,
-      # change it to "127.0.0.1:5432:5432" and close 5432 in the security group.
-      - "5432:5432"
+      # Only from the instance itself (e.g. psql over ssh): clients connect to
+      # pgbouncer on 6432, and the security group doesn't open 5432.
+      - "127.0.0.1:5432:5432"
     env_file:
       - .db.env
     # Sized for a t4g.small (2 GB RAM). Clients go through pgbouncer, which

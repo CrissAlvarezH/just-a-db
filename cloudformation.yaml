@@ -67,11 +67,8 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
-          CidrIp: 0.0.0.0/0
-        # pgbouncer (TLS required). Once clients use it, 5432 above can go.
+        # pgbouncer (TLS required). Postgres itself (5432) isn't reachable from
+        # outside: clients go through pgbouncer.
         - IpProtocol: tcp
           FromPort: 6432
           ToPort: 6432

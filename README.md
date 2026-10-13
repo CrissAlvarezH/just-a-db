@@ -33,7 +33,7 @@ That's all, it will create the following infrastructure in you aws account:
 
 ### Details
 - You can see the logs in CloudWatch Logs: `just-a-db/database-logs` (Postgres, pgbouncer, panel) and `just-a-db/backups-logs` (the nightly backups). The panel's backups page shows the latest runs from these logs.
-- Clients connect through **pgbouncer on port 6432**, with TLS required (`sslmode=require`; the certificate is self-signed, in `certs/` on the instance). It pools connections in transaction mode, so clients must disable prepared statements (`prepare: false` in postgres.js). Port 5432 is direct Postgres.
+- Clients connect through **pgbouncer on port 6432**, with TLS required (`sslmode=require`; the certificate is self-signed, in `certs/` on the instance). It pools connections in transaction mode, so clients must disable prepared statements (`prepare: false` in postgres.js). Port 5432 (direct Postgres) only listens on the instance itself.
 - Postgres is tuned for a t4g.small (2 GB RAM) and closes sessions idle for 5 minutes; queries slower than 500ms are logged.
 - You can see the backups in S3 organized by database name, with files named `backup_<database_name>_<timestamp>.dump` (`pg_dump` custom format), plus roles in `_globals/`. The 14 most recent are kept (`BACKUP_KEEP` in `.backup.env`); old ones are only deleted after every backup of the run succeeded. Set `BACKUP_HEALTHCHECK_URL` (e.g. healthchecks.io) to get alerted when a backup fails or doesn't run.
 - Restore a backup: `pg_restore -h <host> -U <user> -d <new_db> --no-owner backup_<db>_<timestamp>.dump`.
