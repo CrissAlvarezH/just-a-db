@@ -1,0 +1,10 @@
+{{define "content"}}
+<section class="card narrow">
+  <h1>Entrar</h1>
+  <p class="muted">Te enviaremos un código de acceso a tu correo.</p>
+  <form method="post" action="/login" class="stack">
+    <label>Email <input type="email" name="email" required autofocus autocomplete="email"></label>
+    <button>Enviar código</button>
+  </form>
+</section>
+{{end}}

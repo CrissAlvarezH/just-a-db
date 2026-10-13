@@ -1,6 +1,7 @@
-FROM postgres:17.2-alpine3.21
+# Same major version as the database: pg_dump refuses to dump a newer server.
+FROM postgres:17-alpine
 
-RUN apk add --no-cache aws-cli
+RUN apk add --no-cache aws-cli bash
 
 WORKDIR /app
 

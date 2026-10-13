@@ -71,6 +71,20 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           CidrIp: 0.0.0.0/0
+        # pgbouncer (TLS required). Once clients use it, 5432 above can go.
+        - IpProtocol: tcp
+          FromPort: 6432
+          ToPort: 6432
+          CidrIp: 0.0.0.0/0
+        # Admin panel over HTTPS (caddy; 80 is for Let's Encrypt and redirects).
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
   
   ElasticIP:
     Type: AWS::EC2::EIP
@@ -121,6 +135,15 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: 
+                  - !GetAtt BackupsLogGroup.Arn
+                  - !GetAtt DatabaseLogGroup.Arn
+              # The panel lists the latest backup runs: nightly ones in the
+              # backups' group, manual ones in the panel's (database-logs).
+              - Effect: Allow
+                Action:
+                  - logs:FilterLogEvents
+                  - logs:GetLogEvents
+                Resource:
                   - !GetAtt BackupsLogGroup.Arn
                   - !GetAtt DatabaseLogGroup.Arn
 

@@ -104,14 +104,14 @@ function get_instance_ip() {
 
 function connect_to_instance() {
   ip=$(get_instance_ip)
-  ssh -o StrictHostKeyChecking=no -i just-a-db.pem ec2-user@$ip
+  ssh -o StrictHostKeyChecking=accept-new -i just-a-db.pem ec2-user@$ip
 }
 
 
 function get_user_data_output() {
   ip=$(get_instance_ip)
 
-  ssh -o StrictHostKeyChecking=no -i just-a-db.pem ec2-user@$ip \
+  ssh -o StrictHostKeyChecking=accept-new -i just-a-db.pem ec2-user@$ip \
     "sudo cat /var/log/cloud-init-output.log" > user_data_output.log
 
   echo "User data output:"

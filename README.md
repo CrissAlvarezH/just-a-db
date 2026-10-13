@@ -32,12 +32,35 @@ That's all, it will create the following infrastructure in you aws account:
 
 
 ### Details
-- You can see the logs in CloudWatch Logs, the log groups are `just-a-db/database-logs` and `just-a-db/backup-logs`.
-- You can see the backups in S3 organized by database name, with files named `backup_<database_name>_<timestamp>.sql.gz`. Only the 3 most recent backups are kept, the oldest ones are deleted.
+- You can see the logs in CloudWatch Logs: `just-a-db/database-logs` (Postgres, pgbouncer, panel) and `just-a-db/backups-logs` (the nightly backups). The panel's backups page shows the latest runs from these logs.
+- Clients connect through **pgbouncer on port 6432**, with TLS required (`sslmode=require`; the certificate is self-signed, in `certs/` on the instance). It pools connections in transaction mode, so clients must disable prepared statements (`prepare: false` in postgres.js). Port 5432 is direct Postgres.
+- Postgres is tuned for a t4g.small (2 GB RAM) and closes sessions idle for 5 minutes; queries slower than 500ms are logged.
+- You can see the backups in S3 organized by database name, with files named `backup_<database_name>_<timestamp>.dump` (`pg_dump` custom format), plus roles in `_globals/`. The 14 most recent are kept (`BACKUP_KEEP` in `.backup.env`); old ones are only deleted after every backup of the run succeeded. Set `BACKUP_HEALTHCHECK_URL` (e.g. healthchecks.io) to get alerted when a backup fails or doesn't run.
+- Restore a backup: `pg_restore -h <host> -U <user> -d <new_db> --no-owner backup_<db>_<timestamp>.dump`.
+- Upgrading an instance created with an older version: see [docs/UPGRADE.md](docs/UPGRADE.md).
 - The default database is created with the name `just-a-db`.
 - The credentials are created in the deployment stack process, you can see them executing the command `make credentials`, it will store the credentials in the `credentials.txt` file.
 - In the root folder you will find `just-a-db.pem` file, that is the private key for the ec2 instance, you need to keep it safe and secure.
 
+
+### Admin panel
+
+A small web panel (`panel/`, Go + plain HTML, ~5 MB of RAM) behind caddy with
+automatic HTTPS:
+
+- Log in with a 6-digit code sent by email (Brevo) to one of `ALLOWED_EMAILS`.
+- See databases (size, connections), users, and Postgres' connection usage.
+- Create a database with its own user (owner of the database, without access to
+  the others); the connection URL is shown once.
+- New password for a user, close a database to other users, delete a database.
+- Browse and download backups (short-lived S3 links), and run a backup now.
+
+Set it up with `.panel.env` (see `.panel.env.example`) and
+`docker-compose up -d --build panel caddy`; details in
+[docs/UPGRADE.md](docs/UPGRADE.md#7-admin-panel-optional). Locally, with a `.panel.env`,
+`docker-compose -f docker-compose.local.yaml up panel` serves it on
+http://localhost:8080 (`DEV_LOG_CODES=true` prints login codes in its logs
+instead of emailing them).
 
 ### Useful commands
 

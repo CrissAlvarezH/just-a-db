@@ -1,0 +1,12 @@
+{{define "content"}}
+<section class="card narrow">
+  <h1>Revisa tu correo</h1>
+  <p class="muted">Si <strong>{{.Data}}</strong> tiene acceso, le llegó un código de 6 dígitos. Vence en 10 minutos.</p>
+  <form method="post" action="/login/verify" class="stack">
+    <input type="hidden" name="email" value="{{.Data}}">
+    <label>Código <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus autocomplete="one-time-code"></label>
+    <button>Entrar</button>
+  </form>
+  <p><a href="/login">Usar otro correo</a></p>
+</section>
+{{end}}

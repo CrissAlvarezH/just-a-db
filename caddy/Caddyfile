@@ -1,0 +1,6 @@
+# HTTPS for the panel, with a Let's Encrypt certificate for PANEL_DOMAIN
+# (its DNS must point to this instance, and ports 80/443 be open).
+{$PANEL_DOMAIN} {
+	encode gzip
+	reverse_proxy panel:8080
+}

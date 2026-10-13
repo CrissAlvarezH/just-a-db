@@ -1,0 +1,44 @@
+{{define "layout"}}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{.Title}} · just-a-db</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <a class="brand" href="/">just-a-db</a>
+    {{if .Email}}
+    <nav>
+      <a href="/" {{if eq .Nav "databases"}}class="active"{{end}}>Bases de datos</a>
+      {{if .Backups}}<a href="/backups" {{if eq .Nav "backups"}}class="active"{{end}}>Backups</a>{{end}}
+    </nav>
+    <form method="post" action="/logout" class="logout">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <span class="muted">{{.Email}}</span>
+      <button class="link">Salir</button>
+    </form>
+    {{end}}
+  </header>
+  <main>
+    {{if .Notice}}<p class="notice">{{.Notice}}</p>{{end}}
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    {{template "content" .}}
+  </main>
+
+  <!-- Shared by every form with data-confirm (see static/app.js). -->
+  <dialog id="confirm-dialog" class="modal">
+    <form method="dialog">
+      <h2 data-slot="title"></h2>
+      <p data-slot="message"></p>
+      <div class="modal-actions">
+        <button value="cancel" class="secondary">Cancelar</button>
+        <button value="ok" data-slot="ok" autofocus></button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>{{end}}

@@ -1,0 +1,9 @@
+{{define "content"}}
+{{with .Data}}
+<section class="card">
+  <h1>{{.Title}}</h1>
+  {{template "creds" .}}
+  <p><a href="/">Volver</a></p>
+</section>
+{{end}}
+{{end}}

@@ -1,0 +1,30 @@
+{{define "content"}}
+{{template "refresh" .}}
+{{with .Data}}
+<section class="card">
+  <p><a href="/backups">← Backups</a></p>
+  <h2>{{.Folder}}</h2>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Archivo</th><th>Fecha</th><th>Tamaño</th><th></th></tr></thead>
+    <tbody>
+    {{range .Objects}}
+      <tr>
+        <td><code>{{.Name}}</code></td>
+        <td>{{time .Modified}}</td>
+        <td>{{bytes .Size}}</td>
+        <td class="actions">
+          {{if restorable .Key}}<a href="/databases/new?backup={{.Key}}">Crear base desde este</a>{{end}}
+          <a href="/backups/download?key={{.Key}}">Descargar</a>
+        </td>
+      </tr>
+    {{else}}
+      <tr><td colspan="4" class="muted">No hay backups.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted">Restaurar: <code>pg_restore -h &lt;host&gt; -U &lt;usuario&gt; -d &lt;base_nueva&gt; --no-owner archivo.dump</code></p>
+</section>
+{{end}}
+{{end}}

@@ -4,7 +4,9 @@
 .env
 .db.env
 .backup.env
+.panel.env
 credentials.txt
+certs/
 
 just-a-db.pem
 user_data_output*.log

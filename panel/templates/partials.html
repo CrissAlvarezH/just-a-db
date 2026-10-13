@@ -1,0 +1,19 @@
+{{/* Credentials shown once, after creating a database or a new password. */}}
+{{define "creds"}}
+<p class="warn-box">Guarda estos datos ahora: la contraseña no se vuelve a mostrar.</p>
+<dl class="creds">
+  <dt>Usuario</dt><dd><code>{{.User}}</code></dd>
+  <dt>Contraseña</dt><dd><code>{{.Password}}</code> <button type="button" class="link" data-copy="{{.Password}}">Copiar</button></dd>
+  <dt>Base de datos</dt><dd><code>{{.Database}}</code></dd>
+  <dt>URL</dt><dd><code class="break">{{.URL}}</code> <button type="button" class="link" data-copy="{{.URL}}">Copiar</button></dd>
+</dl>
+<p class="muted">Se conecta por PgBouncer (modo transacción): desactiva los prepared statements en el cliente, por ejemplo <code>prepare: false</code> en postgres.js.</p>
+{{end}}
+
+{{/* Reloads the page: the data is read from Postgres/S3 on every load. */}}
+{{define "refresh"}}
+<div class="refresh">
+  <span class="muted">Actualizado a las {{clock}}</span>
+  <a class="button secondary" href="{{.Path}}">↻ Actualizar</a>
+</div>
+{{end}}
